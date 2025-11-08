@@ -110,6 +110,10 @@
                     this.musicPlaying = false;
                     this.initAudio();
                     
+                    // Load rocket image
+                    this.rocketImage = new Image();
+                    this.rocketImage.src = 'meteor-dodge-space-rocket.png';
+                    
                     // Initialize empty arrays for game entities
                     this.meteors = [];
                     this.powerUps = [];
@@ -1981,7 +1985,8 @@
                     // Create player at center position
                     this.player = new codebyart_Player(
                         this.canvas.width / 2,
-                        this.canvas.height / 2
+                        this.canvas.height / 2,
+                        this.rocketImage
                     );
                     
                     // Clear all entity arrays
@@ -2050,20 +2055,23 @@
             
             // Player Ship Class
             class codebyart_Player {
-                constructor(x, y) {
+                constructor(x, y, rocketImage) {
                     // Initial position (center of canvas)
                     this.x = x;
                     this.y = y;
                     
-                    // Ship dimensions (40x40 pixels)
-                    this.width = 40;
-                    this.height = 40;
+                    // Ship dimensions (50x50 pixels - slightly larger for image)
+                    this.width = 50;
+                    this.height = 50;
                     
                     // Movement speed (5 pixels per frame)
                     this.speed = 5;
                     
                     // Ship color (#00FFFF cyan)
                     this.color = '#00FFFF';
+                    
+                    // Rocket image
+                    this.rocketImage = rocketImage;
                     
                     // Initialize power-up state properties
                     this.shieldActive = false;
@@ -2130,7 +2138,6 @@
                 codebyart_render(ctx) {
                     ctx.save();
                     
-                    // Draw triangular ship shape pointing upward
                     // Round x/y coordinates to integers before rendering
                     ctx.translate(Math.round(this.x), Math.round(this.y));
                     
@@ -2138,13 +2145,26 @@
                     ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
                     ctx.shadowBlur = 15;
                     
-                    ctx.fillStyle = this.color;
-                    ctx.beginPath();
-                    ctx.moveTo(0, -this.height / 2); // Top point
-                    ctx.lineTo(-this.width / 2, this.height / 2); // Bottom left
-                    ctx.lineTo(this.width / 2, this.height / 2); // Bottom right
-                    ctx.closePath();
-                    ctx.fill();
+                    // Draw rocket image if loaded, otherwise draw triangle
+                    if (this.rocketImage && this.rocketImage.complete) {
+                        // Draw the rocket image centered
+                        ctx.drawImage(
+                            this.rocketImage,
+                            -this.width / 2,
+                            -this.height / 2,
+                            this.width,
+                            this.height
+                        );
+                    } else {
+                        // Fallback: Draw triangular ship shape pointing upward
+                        ctx.fillStyle = this.color;
+                        ctx.beginPath();
+                        ctx.moveTo(0, -this.height / 2); // Top point
+                        ctx.lineTo(-this.width / 2, this.height / 2); // Bottom left
+                        ctx.lineTo(this.width / 2, this.height / 2); // Bottom right
+                        ctx.closePath();
+                        ctx.fill();
+                    }
                     
                     // Reset shadow for shield
                     ctx.shadowBlur = 0;
@@ -2159,7 +2179,7 @@
                         ctx.shadowColor = 'rgba(255, 215, 0, 0.6)';
                         ctx.shadowBlur = 10;
                         
-                        const shieldRadius = this.width;
+                        const shieldRadius = this.width * 0.9;
                         ctx.beginPath();
                         for (let i = 0; i < 6; i++) {
                             const angle = (Math.PI / 3) * i;

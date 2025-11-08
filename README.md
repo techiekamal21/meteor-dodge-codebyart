@@ -6,11 +6,11 @@
 
 **Navigate your spaceship through 5 challenging levels filled with meteors and power-ups!**
 
-[![Play Now](https://img.shields.io/badge/Play%20Now-Live%20Demo-00E5FF?style=for-the-badge&logo=html5)](https://YOUR-USERNAME.github.io/meteor-dodge-game/)
+[![Play Now](https://img.shields.io/badge/Play%20Now-Live%20Demo-00E5FF?style=for-the-badge&logo=html5)](https://codebyart.com/meteor-dodge/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![HTML5](https://img.shields.io/badge/HTML5-Canvas-E34F26?style=for-the-badge&logo=html5)](https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API)
 
-[Play Game](https://YOUR-USERNAME.github.io/meteor-dodge-game/) • [Report Bug](https://github.com/YOUR-USERNAME/meteor-dodge-game/issues) • [Request Feature](https://github.com/YOUR-USERNAME/meteor-dodge-game/issues)
+[Play Game](https://codebyart.com/meteor-dodge/) • [Report Bug](https://github.com/codebyartcom/meteor-dodge-codebyart/issues) • [Request Feature](https://github.com/codebyartcom/meteor-dodge-codebyart/issues)
 
 </div>
 
@@ -74,17 +74,17 @@
 ## 🚀 Quick Start
 
 ### Play Online
-Visit the live demo: [Play Meteor Dodge](https://YOUR-USERNAME.github.io/meteor-dodge-game/)
+Visit the live demo: [Play Meteor Dodge](https://codebyart.com/meteor-dodge/)
 
 ### Run Locally
 1. Clone the repository:
 ```bash
-git clone https://github.com/YOUR-USERNAME/meteor-dodge-game.git
+git clone https://github.com/codebyartcom/meteor-dodge-codebyart.git
 ```
 
 2. Open `index.html` in your browser
 ```bash
-cd meteor-dodge-game
+cd meteor-dodge-codebyart
 # Double-click index.html or open with browser
 ```
 
@@ -94,12 +94,12 @@ That's it! No build process, no dependencies.
 
 ## 🌐 WordPress Integration
 
-### Method 1: Embed with iFrame (Recommended)
+### Embed with iFrame
 Add this code to your WordPress page:
 
 ```html
 <iframe 
-    src="https://YOUR-USERNAME.github.io/meteor-dodge-game/" 
+    src="https://codebyartcom.github.io/meteor-dodge-codebyart/" 
     width="100%" 
     height="650px" 
     frameborder="0" 
@@ -108,10 +108,7 @@ Add this code to your WordPress page:
 </iframe>
 ```
 
-### Method 2: Direct Embed
-Use the `wordpress-safe-game.html` file in a Custom HTML block.
-
-See [WordPress Installation Guide](FINAL-WORDPRESS-INSTRUCTIONS.md) for details.
+Or visit the live game at: [https://codebyart.com/meteor-dodge/](https://codebyart.com/meteor-dodge/)
 
 ---
 
@@ -141,13 +138,12 @@ See [WordPress Installation Guide](FINAL-WORDPRESS-INSTRUCTIONS.md) for details.
 ## 📁 Project Structure
 
 ```
-meteor-dodge-game/
+meteor-dodge-codebyart/
 ├── index.html                          # Main game file (standalone)
 ├── wordpress-safe-game.html            # WordPress-safe version
+├── meteor-dodge-space-rocket.png       # Custom rocket sprite
 ├── README.md                           # This file
-├── FINAL-WORDPRESS-INSTRUCTIONS.md     # WordPress setup guide
-├── QUICK-START.md                      # Quick installation guide
-└── SEO-URLS-CONFIGURED.md             # SEO configuration
+└── LICENSE                             # MIT License
 ```
 
 ---
@@ -236,7 +232,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **CodeByArt**
 - Website: [https://codebyart.com](https://codebyart.com)
-- GitHub: [@YOUR-USERNAME](https://github.com/YOUR-USERNAME)
+- GitHub: [@codebyartcom](https://github.com/codebyartcom)
 
 ---
 
@@ -273,9 +269,8 @@ Give a ⭐️ if you enjoyed this game!
 ## 📞 Support
 
 Having issues? Check out:
-- [WordPress Installation Guide](FINAL-WORDPRESS-INSTRUCTIONS.md)
-- [Quick Start Guide](QUICK-START.md)
-- [Open an Issue](https://github.com/YOUR-USERNAME/meteor-dodge-game/issues)
+- [Open an Issue](https://github.com/codebyartcom/meteor-dodge-codebyart/issues)
+- Visit: [https://codebyart.com](https://codebyart.com)
 
 ---
 
@@ -285,6 +280,6 @@ Having issues? Check out:
 
 © 2025 CodeByArt - All Rights Reserved
 
-[Website](https://codebyart.com) • [Play Game](https://YOUR-USERNAME.github.io/meteor-dodge-game/) • [Report Issue](https://github.com/YOUR-USERNAME/meteor-dodge-game/issues)
+[Website](https://codebyart.com) • [Play Game](https://codebyart.com/meteor-dodge/) • [Report Issue](https://github.com/codebyartcom/meteor-dodge-codebyart/issues)
 
 </div>

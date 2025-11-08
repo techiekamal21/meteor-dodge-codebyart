@@ -1,0 +1,2593 @@
+﻿<!-- Meteor Dodge Game - WordPress Safe Version -->
+<!-- Paste this into WordPress Custom HTML block -->
+<!-- 100% Isolated - Won't affect your WordPress site -->
+
+<style>
+    /* Isolated game container - won't affect WordPress */
+    #meteor-dodge-game-container {
+        margin: 0 auto;
+        padding: 20px 0;
+        width: 100%;
+        max-width: 100%;
+        font-family: 'Arial', sans-serif;
+        background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        overflow: hidden;
+    }
+
+    #meteor-dodge-game-container #gameCanvas {
+        display: block;
+        background: #0a0a1a;
+        border: 2px solid #00FFFF;
+        box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+        max-width: 100%;
+        max-height: 100vh;
+    }
+
+    /* Desktop styles */
+    @media (min-width: 768px) {
+        #meteor-dodge-game-container #gameCanvas {
+            width: 800px;
+            height: 600px;
+        }
+    }
+
+    /* Mobile styles */
+    @media (max-width: 767px) {
+        #meteor-dodge-game-container {
+            align-items: flex-start;
+            padding-top: 10px;
+        }
+
+        #meteor-dodge-game-container #gameCanvas {
+            width: 100vw;
+            height: 70vh;
+            border: 1px solid #00FFFF;
+        }
+    }
+
+    /* Prevent text selection during gameplay - only for canvas */
+    #meteor-dodge-game-container #gameCanvas {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+        touch-action: none;
+    }
+</style>
+
+<div id="meteor-dodge-game-container">
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            // Main Game Controller Class
+            class codebyart_MeteorDodgeGame {
+                constructor(canvasId) {
+                    // Initialize canvas and 2D context
+                    this.canvas = document.getElementById(canvasId);
+                    this.ctx = this.canvas.getContext('2d');
+                    
+                    // Set canvas dimensions
+                    this.setCanvasDimensions();
+                    
+                    // Game state properties
+                    this.score = 0;
+                    this.highScore = 0;
+                    this.newHighScore = false; // Flag for new high score animation
+                    this.highScorePulse = 0; // Animation phase for high score
+                    this.gameState = 'nameInput'; // 'nameInput', 'start', 'playing', 'gameover', 'levelComplete'
+                    this.gameTime = 0;
+                    this.lastTimestamp = 0;
+                    
+                    // Player info and level system
+                    this.playerName = '';
+                    this.currentLevel = 1;
+                    this.maxLevel = 5;
+                    this.levelScore = 0; // Score for current level
+                    this.totalScore = 0; // Total score across all levels
+                    this.showHowToPlay = false; // Toggle for how to play overlay
+                    
+                    // Level configurations
+                    this.levels = [
+                        { name: 'Asteroid Belt', targetScore: 200, meteorSpeed: 1.0, spawnRate: 2000, color: '#8B4513' },
+                        { name: 'Meteor Storm', targetScore: 400, meteorSpeed: 1.2, spawnRate: 1600, color: '#FF6347' },
+                        { name: 'Comet Field', targetScore: 600, meteorSpeed: 1.4, spawnRate: 1300, color: '#00CED1' },
+                        { name: 'Supernova Zone', targetScore: 800, meteorSpeed: 1.6, spawnRate: 1000, color: '#FFD700' },
+                        { name: 'Black Hole Edge', targetScore: 1000, meteorSpeed: 1.8, spawnRate: 800, color: '#9370DB' }
+                    ];
+                    
+                    // Audio context and sounds
+                    this.audioEnabled = true;
+                    this.musicPlaying = false;
+                    this.initAudio();
+                    
+                    // Initialize empty arrays for game entities
+                    this.meteors = [];
+                    this.powerUps = [];
+                    this.particles = [];
+                    this.particlePool = []; // Object pool for particles
+                    this.maxParticles = 100; // Cap maximum active particles at 100
+                    this.player = null;
+                    
+                    // Initial difficulty parameters
+                    this.meteorSpawnRate = 2000; // milliseconds
+                    this.lastMeteorSpawn = 0;
+                    this.speedMultiplier = 1.0;
+                    this.difficultyLevel = 0;
+                    
+                    // Power-up spawn tracking
+                    this.lastPowerUpSpawn = {
+                        shield: 0,
+                        slowmo: 0,
+                        multiplier: 0
+                    };
+                    
+                    // Input state
+                    this.keys = {};
+                    
+                    // Background stars for visual effect
+                    this.stars = this.generateStars();
+                }
+                
+                // Initialize audio system with Web Audio API
+                initAudio() {
+                    try {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        this.masterGain = this.audioContext.createGain();
+                        this.masterGain.gain.value = 0.3; // Master volume
+                        this.masterGain.connect(this.audioContext.destination);
+                    } catch (e) {
+                        console.warn('Web Audio API not supported');
+                        this.audioEnabled = false;
+                    }
+                }
+                
+                // Play a simple tone (frequency, duration, type)
+                playSound(frequency, duration, type = 'sine', volume = 0.3) {
+                    if (!this.audioEnabled || !this.audioContext) return;
+                    
+                    try {
+                        const oscillator = this.audioContext.createOscillator();
+                        const gainNode = this.audioContext.createGain();
+                        
+                        oscillator.type = type;
+                        oscillator.frequency.value = frequency;
+                        
+                        gainNode.gain.value = volume;
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
+                        
+                        oscillator.connect(gainNode);
+                        gainNode.connect(this.masterGain);
+                        
+                        oscillator.start(this.audioContext.currentTime);
+                        oscillator.stop(this.audioContext.currentTime + duration);
+                    } catch (e) {
+                        console.warn('Error playing sound:', e);
+                    }
+                }
+                
+                // Sound effects
+                playCoinSound() {
+                    this.playSound(800, 0.1, 'square', 0.2);
+                    setTimeout(() => this.playSound(1000, 0.1, 'square', 0.2), 50);
+                }
+                
+                playExplosionSound() {
+                    this.playSound(100, 0.3, 'sawtooth', 0.4);
+                }
+                
+                playPowerUpSound() {
+                    this.playSound(400, 0.1, 'sine', 0.2);
+                    setTimeout(() => this.playSound(600, 0.1, 'sine', 0.2), 50);
+                    setTimeout(() => this.playSound(800, 0.15, 'sine', 0.2), 100);
+                }
+                
+                playHighScoreSound() {
+                    const notes = [523, 659, 784, 1047]; // C, E, G, C (major chord)
+                    notes.forEach((note, i) => {
+                        setTimeout(() => this.playSound(note, 0.3, 'sine', 0.15), i * 100);
+                    });
+                }
+                
+                // Simple background music loop
+                startBackgroundMusic() {
+                    if (!this.audioEnabled || !this.audioContext || this.musicPlaying) return;
+                    
+                    this.musicPlaying = true;
+                    const playMusicLoop = () => {
+                        if (!this.musicPlaying || this.gameState !== 'playing') return;
+                        
+                        // Simple melody pattern (space-themed)
+                        const melody = [
+                            {freq: 262, dur: 0.3}, // C
+                            {freq: 330, dur: 0.3}, // E
+                            {freq: 392, dur: 0.3}, // G
+                            {freq: 330, dur: 0.3}, // E
+                            {freq: 294, dur: 0.3}, // D
+                            {freq: 349, dur: 0.3}, // F
+                            {freq: 392, dur: 0.3}, // G
+                            {freq: 349, dur: 0.3}  // F
+                        ];
+                        
+                        melody.forEach((note, i) => {
+                            setTimeout(() => {
+                                if (this.musicPlaying && this.gameState === 'playing') {
+                                    this.playSound(note.freq, note.dur, 'triangle', 0.08);
+                                }
+                            }, i * 300);
+                        });
+                        
+                        // Loop the music
+                        setTimeout(() => {
+                            if (this.musicPlaying && this.gameState === 'playing') {
+                                playMusicLoop();
+                            }
+                        }, melody.length * 300);
+                    };
+                    
+                    playMusicLoop();
+                }
+                
+                stopBackgroundMusic() {
+                    this.musicPlaying = false;
+                }
+                
+                setCanvasDimensions() {
+                    // Set canvas to 800x600 on desktop
+                    // Set canvas to 100vw x 70vh on mobile (width < 768px)
+                    if (window.innerWidth < 768) {
+                        // Mobile: 100vw x 70vh
+                        this.canvas.width = window.innerWidth;
+                        this.canvas.height = window.innerHeight * 0.7;
+                    } else {
+                        // Desktop: 800x600
+                        this.canvas.width = 800;
+                        this.canvas.height = 600;
+                    }
+                }
+                
+                generateStars() {
+                    const stars = [];
+                    const starCount = 100; // Increased star count
+                    for (let i = 0; i < starCount; i++) {
+                        stars.push({
+                            x: Math.random() * this.canvas.width,
+                            y: Math.random() * this.canvas.height,
+                            size: Math.random() * 2 + 0.5,
+                            speed: Math.random() * 0.5 + 0.2, // Vertical speed for moving stars
+                            opacity: Math.random() * 0.5 + 0.5 // Varying opacity for depth
+                        });
+                    }
+                    return stars;
+                }
+                
+                // Game initialization method
+                codebyart_init() {
+                    // Load high score from localStorage
+                    try {
+                        const savedHighScore = localStorage.getItem('codebyart_meteor_dodge_highscore');
+                        if (savedHighScore !== null) {
+                            this.highScore = parseInt(savedHighScore, 10) || 0;
+                        }
+                    } catch (e) {
+                        console.warn('Could not load high score from localStorage');
+                    }
+                    
+                    // Set up keyboard event listeners
+                    this.handleKeyDown = (e) => {
+                        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                            e.preventDefault();
+                            this.keys[e.key] = true;
+                        }
+                    };
+                    
+                    this.handleKeyUp = (e) => {
+                        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+                            e.preventDefault();
+                            this.keys[e.key] = false;
+                        }
+                    };
+                    
+                    document.addEventListener('keydown', this.handleKeyDown);
+                    document.addEventListener('keyup', this.handleKeyUp);
+                    
+                    // Set up touch event listeners for mobile
+                    this.touchStartX = 0;
+                    this.touchStartY = 0;
+                    
+                    this.handleTouchStart = (e) => {
+                        e.preventDefault();
+                        const touch = e.touches[0];
+                        const rect = this.canvas.getBoundingClientRect();
+                        
+                        // Store initial touch position
+                        this.touchStartX = touch.clientX - rect.left;
+                        this.touchStartY = touch.clientY - rect.top;
+                        
+                        // Scale touch coordinates to canvas coordinates
+                        const scaleX = this.canvas.width / rect.width;
+                        const scaleY = this.canvas.height / rect.height;
+                        const canvasX = this.touchStartX * scaleX;
+                        const canvasY = this.touchStartY * scaleY;
+                        
+                        // Detect touch position (left/right half of screen for horizontal movement)
+                        if (canvasX < this.canvas.width / 2) {
+                            this.keys.touchLeft = true;
+                        } else {
+                            this.keys.touchRight = true;
+                        }
+                        
+                        // Detect touch position (top/bottom half of screen for vertical movement)
+                        if (canvasY < this.canvas.height / 2) {
+                            this.keys.touchUp = true;
+                        } else {
+                            this.keys.touchDown = true;
+                        }
+                    };
+                    
+                    this.handleTouchMove = (e) => {
+                        e.preventDefault();
+                        const touch = e.touches[0];
+                        const rect = this.canvas.getBoundingClientRect();
+                        
+                        // Get current touch position
+                        const touchX = touch.clientX - rect.left;
+                        const touchY = touch.clientY - rect.top;
+                        
+                        // Scale touch coordinates to canvas coordinates
+                        const scaleX = this.canvas.width / rect.width;
+                        const scaleY = this.canvas.height / rect.height;
+                        const canvasX = touchX * scaleX;
+                        const canvasY = touchY * scaleY;
+                        
+                        // Clear all touch flags
+                        this.keys.touchLeft = false;
+                        this.keys.touchRight = false;
+                        this.keys.touchUp = false;
+                        this.keys.touchDown = false;
+                        
+                        // Set appropriate movement flags based on current position
+                        if (canvasX < this.canvas.width / 2) {
+                            this.keys.touchLeft = true;
+                        } else {
+                            this.keys.touchRight = true;
+                        }
+                        
+                        if (canvasY < this.canvas.height / 2) {
+                            this.keys.touchUp = true;
+                        } else {
+                            this.keys.touchDown = true;
+                        }
+                    };
+                    
+                    this.handleTouchEnd = (e) => {
+                        e.preventDefault();
+                        // Clear all touch movement flags
+                        this.keys.touchLeft = false;
+                        this.keys.touchRight = false;
+                        this.keys.touchUp = false;
+                        this.keys.touchDown = false;
+                    };
+                    
+                    this.canvas.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+                    this.canvas.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+                    this.canvas.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+                    this.canvas.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
+                    
+                    // Add sound toggle handler
+                    this.handleSoundToggle = (e) => {
+                        if (this.gameState !== 'playing') return;
+                        
+                        const rect = this.canvas.getBoundingClientRect();
+                        const clickX = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+                        const clickY = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+                        
+                        const scaleX = this.canvas.width / rect.width;
+                        const scaleY = this.canvas.height / rect.height;
+                        const canvasX = clickX * scaleX;
+                        const canvasY = clickY * scaleY;
+                        
+                        const isMobile = window.innerWidth < 768;
+                        const soundButtonSize = isMobile ? 35 : 40;
+                        const soundButtonX = this.canvas.width - soundButtonSize - 10;
+                        const soundButtonY = this.canvas.height - soundButtonSize - 10;
+                        
+                        if (canvasX >= soundButtonX && canvasX <= soundButtonX + soundButtonSize &&
+                            canvasY >= soundButtonY && canvasY <= soundButtonY + soundButtonSize) {
+                            this.audioEnabled = !this.audioEnabled;
+                            if (this.audioEnabled && this.audioContext) {
+                                this.audioContext.resume();
+                            }
+                        }
+                    };
+                    
+                    this.canvas.addEventListener('click', this.handleSoundToggle);
+                    this.canvas.addEventListener('touchstart', this.handleSoundToggle);
+                    
+                    // Add window resize event listener
+                    // Adjust canvas dimensions on orientation change
+                    this.handleResize = () => {
+                        this.setCanvasDimensions();
+                        // Regenerate stars for new canvas dimensions
+                        this.stars = this.generateStars();
+                        
+                        // If player exists, ensure they stay within new bounds
+                        if (this.player) {
+                            const halfWidth = this.player.width / 2;
+                            const halfHeight = this.player.height / 2;
+                            this.player.x = Math.max(halfWidth, Math.min(this.canvas.width - halfWidth, this.player.x));
+                            this.player.y = Math.max(halfHeight, Math.min(this.canvas.height - halfHeight, this.player.y));
+                        }
+                    };
+                    
+                    window.addEventListener('resize', this.handleResize);
+                    window.addEventListener('orientationchange', this.handleResize);
+                    
+                    // Show start screen
+                    this.showStartScreen();
+                }
+                
+                showStartScreen() {
+                    this.gameState = 'start';
+                    this.render();
+                }
+                
+                // Main game loop
+                codebyart_gameLoop(timestamp) {
+                    // Calculate deltaTime between frames
+                    if (this.lastTimestamp === 0) {
+                        this.lastTimestamp = timestamp;
+                    }
+                    const deltaTime = timestamp - this.lastTimestamp;
+                    this.lastTimestamp = timestamp;
+                    
+                    // Call update method when game state is 'playing'
+                    if (this.gameState === 'playing') {
+                        this.update(deltaTime);
+                    }
+                    
+                    // Call render method every frame
+                    this.render();
+                    
+                    // Request next animation frame
+                    requestAnimationFrame((ts) => this.codebyart_gameLoop(ts));
+                }
+                
+                update(deltaTime) {
+                    // Update game time
+                    this.gameTime += deltaTime;
+                    
+                    // Update high score pulse animation
+                    if (this.newHighScore) {
+                        this.highScorePulse += deltaTime * 0.005;
+                    }
+                    
+                    // Update moving stars
+                    const frameMultiplier = deltaTime / 16.67;
+                    for (const star of this.stars) {
+                        star.y += star.speed * frameMultiplier;
+                        
+                        // Wrap stars around when they go off screen
+                        if (star.y > this.canvas.height) {
+                            star.y = 0;
+                            star.x = Math.random() * this.canvas.width;
+                        }
+                    }
+                    
+                    // Update player
+                    if (this.player) {
+                        this.player.codebyart_update(
+                            this.keys,
+                            this.canvas.width,
+                            this.canvas.height,
+                            deltaTime
+                        );
+                    }
+                    
+                    // Update meteors
+                    for (let i = this.meteors.length - 1; i >= 0; i--) {
+                        const meteor = this.meteors[i];
+                        meteor.codebyart_update(deltaTime, this.player ? this.player.slowMotionActive : false);
+                        
+                        // Remove meteors that are off screen and award points
+                        if (meteor.codebyart_isOffScreen(this.canvas.height)) {
+                            // Award 10 points per dodged meteor
+                            let points = 10;
+                            
+                            // Apply 2x multiplier when multiplier power-up is active
+                            if (this.player && this.player.multiplierActive) {
+                                points *= 2;
+                            }
+                            
+                            const oldScore = this.score;
+                            this.score += points;
+                            
+                            // Play coin sound for dodging meteor
+                            this.playCoinSound();
+                            
+                            // Check if level target reached
+                            const currentLevelData = this.levels[this.currentLevel - 1];
+                            if (this.score >= currentLevelData.targetScore) {
+                                this.codebyart_completeLevel();
+                                return; // Stop updating after level complete
+                            }
+                            
+                            // Check if new high score reached
+                            if (this.score > this.highScore && oldScore <= this.highScore) {
+                                this.highScore = this.score;
+                                this.newHighScore = true;
+                                this.playHighScoreSound();
+                                
+                                // Save high score immediately
+                                try {
+                                    localStorage.setItem('codebyart_meteor_dodge_highscore', this.highScore.toString());
+                                } catch (e) {
+                                    console.warn('Could not save high score');
+                                }
+                            }
+                            
+                            this.meteors.splice(i, 1);
+                        }
+                    }
+                    
+                    // Update power-ups
+                    for (let i = this.powerUps.length - 1; i >= 0; i--) {
+                        const powerUp = this.powerUps[i];
+                        powerUp.codebyart_update(deltaTime);
+                        
+                        // Remove expired power-ups
+                        if (powerUp.codebyart_isExpired()) {
+                            this.powerUps.splice(i, 1);
+                        }
+                    }
+                    
+                    // Update particles with object pooling
+                    for (let i = this.particles.length - 1; i >= 0; i--) {
+                        const particle = this.particles[i];
+                        particle.codebyart_update(deltaTime);
+                        
+                        // Remove dead particles and return to pool
+                        if (particle.codebyart_isDead()) {
+                            this.particles.splice(i, 1);
+                            // Return particle to pool for reuse
+                            this.particlePool.push(particle);
+                        }
+                    }
+                    
+                    // Check collisions
+                    this.codebyart_checkCollisions();
+                    
+                    // Update difficulty based on score
+                    this.codebyart_increaseDifficulty();
+                    
+                    // Spawn meteors based on spawn rate
+                    // Check if enough time has passed since last meteor spawn
+                    if (this.gameTime - this.lastMeteorSpawn >= this.meteorSpawnRate) {
+                        this.codebyart_spawnMeteor();
+                    }
+                    
+                    // Spawn power-ups at specific intervals
+                    // Shield power-up at 15 seconds
+                    if (this.gameTime >= 15000 && this.lastPowerUpSpawn.shield === 0) {
+                        // Ensure only one shield power-up exists at a time
+                        const hasShield = this.powerUps.some(p => p.type === 'shield');
+                        if (!hasShield) {
+                            this.codebyart_spawnPowerUp('shield');
+                        }
+                    }
+                    
+                    // Slow-motion power-up at 25 seconds
+                    if (this.gameTime >= 25000 && this.lastPowerUpSpawn.slowmo === 0) {
+                        // Ensure only one slowmo power-up exists at a time
+                        const hasSlowmo = this.powerUps.some(p => p.type === 'slowmo');
+                        if (!hasSlowmo) {
+                            this.codebyart_spawnPowerUp('slowmo');
+                        }
+                    }
+                    
+                    // Multiplier power-up at 35 seconds
+                    if (this.gameTime >= 35000 && this.lastPowerUpSpawn.multiplier === 0) {
+                        // Ensure only one multiplier power-up exists at a time
+                        const hasMultiplier = this.powerUps.some(p => p.type === 'multiplier');
+                        if (!hasMultiplier) {
+                            this.codebyart_spawnPowerUp('multiplier');
+                        }
+                    }
+                }
+                
+                // Collision detection method (optimized to check only on-screen objects)
+                codebyart_checkCollisions() {
+                    if (!this.player) return;
+                    
+                    const playerBounds = this.player.codebyart_getBounds();
+                    
+                    // Check player-meteor collisions using circle-circle algorithm
+                    // Only check collisions for on-screen objects
+                    for (let i = this.meteors.length - 1; i >= 0; i--) {
+                        const meteor = this.meteors[i];
+                        
+                        // Skip meteors that are not on screen
+                        if (meteor.y - meteor.radius > this.canvas.height || meteor.y + meteor.radius < 0) {
+                            continue;
+                        }
+                        
+                        const meteorBounds = meteor.codebyart_getBounds();
+                        
+                        // Calculate distance between centers
+                        const dx = playerBounds.centerX - meteorBounds.x;
+                        const dy = playerBounds.centerY - meteorBounds.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Check if circles overlap
+                        if (distance < playerBounds.radius + meteorBounds.radius) {
+                            // Collision detected
+                            this.codebyart_handleMeteorCollision(meteor, i);
+                        }
+                    }
+                    
+                    // Check player-powerup collisions using circle-rectangle algorithm
+                    // Only check collisions for on-screen objects
+                    for (let i = this.powerUps.length - 1; i >= 0; i--) {
+                        const powerUp = this.powerUps[i];
+                        
+                        // Skip power-ups that are not on screen
+                        if (powerUp.y - powerUp.size > this.canvas.height || 
+                            powerUp.y + powerUp.size < 0 ||
+                            powerUp.x - powerUp.size > this.canvas.width ||
+                            powerUp.x + powerUp.size < 0) {
+                            continue;
+                        }
+                        
+                        const powerUpBounds = powerUp.codebyart_getBounds();
+                        
+                        // Find closest point on rectangle to circle center
+                        const closestX = Math.max(powerUpBounds.x, Math.min(playerBounds.centerX, powerUpBounds.x + powerUpBounds.width));
+                        const closestY = Math.max(powerUpBounds.y, Math.min(playerBounds.centerY, powerUpBounds.y + powerUpBounds.height));
+                        
+                        // Calculate distance from closest point to circle center
+                        const dx = playerBounds.centerX - closestX;
+                        const dy = playerBounds.centerY - closestY;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Check if distance is less than circle radius
+                        if (distance < playerBounds.radius) {
+                            // Collision detected
+                            this.codebyart_handlePowerUpCollision(powerUp, i);
+                        }
+                    }
+                }
+                
+                // Handle meteor collision
+                codebyart_handleMeteorCollision(meteor, index) {
+                    // If shield is active, destroy meteor and continue
+                    if (this.player.shieldActive) {
+                        // Create explosion particles at meteor position
+                        this.createExplosionParticles(meteor.x, meteor.y, '#FFD700');
+                        
+                        // Play explosion sound
+                        this.playExplosionSound();
+                        
+                        // Remove the meteor
+                        this.meteors.splice(index, 1);
+                    } else {
+                        // No shield - trigger explosion particles and end game
+                        this.createExplosionParticles(this.player.x, this.player.y, '#FF6347');
+                        
+                        // Play explosion sound
+                        this.playExplosionSound();
+                        
+                        // End the game
+                        this.codebyart_endGame();
+                    }
+                }
+                
+                // Handle power-up collision
+                codebyart_handlePowerUpCollision(powerUp, index) {
+                    // Activate appropriate power-up based on type
+                    switch (powerUp.type) {
+                        case 'shield':
+                            this.player.codebyart_activateShield();
+                            break;
+                        case 'slowmo':
+                            this.player.codebyart_activateSlowMotion();
+                            break;
+                        case 'multiplier':
+                            this.player.codebyart_activateMultiplier();
+                            break;
+                    }
+                    
+                    // Play power-up sound
+                    this.playPowerUpSound();
+                    
+                    // Create collection particles at power-up position
+                    this.createExplosionParticles(powerUp.x, powerUp.y, powerUp.color);
+                    
+                    // Remove the power-up
+                    this.powerUps.splice(index, 1);
+                }
+                
+                // Create explosion particles with object pooling
+                createExplosionParticles(x, y, color) {
+                    const particleCount = 25; // 20-30 particles
+                    
+                    for (let i = 0; i < particleCount; i++) {
+                        // Check if we've reached the maximum particle limit
+                        if (this.particles.length >= this.maxParticles) {
+                            break;
+                        }
+                        
+                        // Random angle for particle direction
+                        const angle = Math.random() * Math.PI * 2;
+                        
+                        // Random speed for particles (radiating outward)
+                        const speed = Math.random() * 3 + 1; // 1 to 4 pixels per frame
+                        
+                        // Calculate velocity components
+                        const vx = Math.cos(angle) * speed;
+                        const vy = Math.sin(angle) * speed;
+                        
+                        // Try to reuse a particle from the pool
+                        let particle;
+                        if (this.particlePool.length > 0) {
+                            particle = this.particlePool.pop();
+                            particle.reset(x, y, vx, vy, color);
+                        } else {
+                            // Create new particle if pool is empty
+                            particle = new codebyart_Particle(x, y, vx, vy, color);
+                        }
+                        
+                        this.particles.push(particle);
+                    }
+                }
+                
+                // End game method
+                codebyart_endGame() {
+                    this.gameState = 'gameover';
+                    
+                    // Stop background music
+                    this.stopBackgroundMusic();
+                    
+                    // Record the time when game ended for 3-second pause
+                    this.gameOverTime = Date.now();
+                    
+                    // Save high score if current score is higher
+                    if (this.score > this.highScore) {
+                        this.highScore = this.score;
+                        
+                        try {
+                            localStorage.setItem('codebyart_meteor_dodge_highscore', this.highScore.toString());
+                        } catch (e) {
+                            console.warn('Could not save high score to localStorage');
+                        }
+                    }
+                }
+                
+                // Complete level method
+                codebyart_completeLevel() {
+                    this.gameState = 'levelComplete';
+                    
+                    // Stop background music
+                    this.stopBackgroundMusic();
+                    
+                    // Play level complete sound
+                    this.playHighScoreSound();
+                    
+                    // Save level score
+                    this.levelScore = this.score;
+                    this.totalScore += this.score;
+                    
+                    // Update high score if total score is higher
+                    if (this.totalScore > this.highScore) {
+                        this.highScore = this.totalScore;
+                        this.newHighScore = true;
+                        
+                        try {
+                            localStorage.setItem('codebyart_meteor_dodge_highscore', this.highScore.toString());
+                        } catch (e) {
+                            console.warn('Could not save high score to localStorage');
+                        }
+                    }
+                }
+                
+                // Spawn meteor at random position
+                codebyart_spawnMeteor() {
+                    // Generate random x position across canvas width
+                    const randomX = Math.random() * this.canvas.width;
+                    
+                    // Create new meteor at top of canvas (y = -50)
+                    const meteor = new codebyart_Meteor(randomX, -50, this.speedMultiplier);
+                    
+                    // Add meteor to meteors array
+                    this.meteors.push(meteor);
+                    
+                    // Track last spawn time
+                    this.lastMeteorSpawn = this.gameTime;
+                }
+                
+                // Increase difficulty based on score
+                codebyart_increaseDifficulty() {
+                    // Calculate difficulty level based on score (every 100 points)
+                    const newDifficultyLevel = Math.floor(this.score / 100);
+                    
+                    // Cap difficulty at level 10
+                    const cappedLevel = Math.min(newDifficultyLevel, 10);
+                    
+                    // Only update if difficulty level has changed
+                    if (cappedLevel !== this.difficultyLevel) {
+                        this.difficultyLevel = cappedLevel;
+                        
+                        // Decrease meteor spawn rate by 10% per level (minimum 500ms)
+                        // Start at 2000ms, decrease by 200ms per level
+                        this.meteorSpawnRate = Math.max(2000 - (this.difficultyLevel * 200), 500);
+                        
+                        // Increase meteor speed by 5% per level
+                        // Start at 1.0, increase by 0.05 per level
+                        this.speedMultiplier = 1.0 + (this.difficultyLevel * 0.05);
+                    }
+                }
+                
+                // Spawn power-up of specified type
+                codebyart_spawnPowerUp(type) {
+                    // Generate random position within canvas bounds
+                    // Keep power-ups away from edges (30 pixel margin)
+                    const margin = 30;
+                    const randomX = margin + Math.random() * (this.canvas.width - margin * 2);
+                    const randomY = margin + Math.random() * (this.canvas.height - margin * 2);
+                    
+                    // Create power-up of specified type
+                    const powerUp = new codebyart_PowerUp(randomX, randomY, type);
+                    
+                    // Add to powerUps array
+                    this.powerUps.push(powerUp);
+                    
+                    // Track last spawn time per type
+                    this.lastPowerUpSpawn[type] = this.gameTime;
+                }
+                
+                render() {
+                    // Clear canvas
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    
+                    // Draw background gradient
+                    const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+                    gradient.addColorStop(0, '#0a0a1a');
+                    gradient.addColorStop(1, '#1a1a2e');
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    
+                    // Render moving stars with varying opacity for depth
+                    for (const star of this.stars) {
+                        this.ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`;
+                        this.ctx.beginPath();
+                        this.ctx.arc(Math.round(star.x), Math.round(star.y), star.size, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                    
+                    // Render game entities during gameplay
+                    if (this.gameState === 'playing') {
+                        // Render particles
+                        for (const particle of this.particles) {
+                            particle.codebyart_render(this.ctx);
+                        }
+                        
+                        // Render meteors
+                        for (const meteor of this.meteors) {
+                            meteor.codebyart_render(this.ctx);
+                        }
+                        
+                        // Render power-ups
+                        for (const powerUp of this.powerUps) {
+                            powerUp.codebyart_render(this.ctx);
+                        }
+                        
+                        // Render player ship
+                        if (this.player) {
+                            this.player.codebyart_render(this.ctx);
+                        }
+                        
+                        // Render UI overlay (will be implemented in later tasks)
+                        this.renderGameUI();
+                    }
+                    
+                    // Render based on game state
+                    if (this.gameState === 'nameInput') {
+                        this.renderNameInputScreen();
+                    } else if (this.gameState === 'start') {
+                        this.renderStartScreen();
+                        this.renderHowToPlayOverlay(); // Show overlay if toggled
+                    } else if (this.gameState === 'levelComplete') {
+                        this.renderLevelCompleteScreen();
+                    } else if (this.gameState === 'gameover') {
+                        this.renderGameOverScreen();
+                    }
+                }
+                
+                renderGameUI() {
+                    // Scale font sizes based on canvas dimensions - smaller and cleaner
+                    const isMobile = window.innerWidth < 768;
+                    const baseFontSize = Math.floor(this.canvas.width / 40); // Reduced from /30
+                    const powerUpFontSize = Math.max(Math.floor(this.canvas.width / 50), 10); // Reduced from /35
+                    
+                    this.ctx.save();
+                    
+                    // Draw score panel in top-left corner with background - smaller and cleaner
+                    const scorePanelWidth = isMobile ? 110 : 140;
+                    const scorePanelHeight = isMobile ? 35 : 45;
+                    
+                    // Score panel background
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    this.ctx.fillRect(5, 5, scorePanelWidth, scorePanelHeight);
+                    this.ctx.strokeStyle = '#00FFFF';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(5, 5, scorePanelWidth, scorePanelHeight);
+                    
+                    // Draw score with cleaner styling
+                    this.ctx.fillStyle = '#00FFFF';
+                    this.ctx.font = `bold ${baseFontSize}px Arial`;
+                    this.ctx.textAlign = 'left';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                    this.ctx.shadowBlur = 5;
+                    this.ctx.fillText(`Score: ${this.score}`, 15, 5 + scorePanelHeight / 2);
+                    
+                    // Draw high score panel in top-right corner with background - smaller and cleaner
+                    const highScorePanelWidth = isMobile ? 110 : 140;
+                    const highScorePanelHeight = isMobile ? 35 : 45;
+                    const highScorePanelX = this.canvas.width - highScorePanelWidth - 5;
+                    
+                    // High score panel background
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    this.ctx.fillRect(highScorePanelX, 5, highScorePanelWidth, highScorePanelHeight);
+                    
+                    // Animate border color if new high score
+                    if (this.newHighScore) {
+                        const pulse = Math.sin(Date.now() * 0.01) * 0.5 + 0.5;
+                        this.ctx.strokeStyle = `rgba(255, 215, 0, ${0.5 + pulse * 0.5})`;
+                        this.ctx.lineWidth = 3;
+                    } else {
+                        this.ctx.strokeStyle = '#FFD700';
+                        this.ctx.lineWidth = 2;
+                    }
+                    this.ctx.strokeRect(highScorePanelX, 5, highScorePanelWidth, highScorePanelHeight);
+                    
+                    // Draw high score with cleaner styling
+                    this.ctx.fillStyle = this.newHighScore ? '#FFD700' : '#FFA500';
+                    this.ctx.font = `bold ${baseFontSize}px Arial`;
+                    this.ctx.textAlign = 'right';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.shadowColor = this.newHighScore ? 'rgba(255, 215, 0, 0.8)' : 'rgba(255, 165, 0, 0.5)';
+                    this.ctx.shadowBlur = this.newHighScore ? 10 : 5;
+                    
+                    // Add "NEW!" badge if new high score (inline with score)
+                    if (this.newHighScore) {
+                        const newBadgeSize = Math.floor(baseFontSize * 0.7);
+                        this.ctx.fillStyle = '#FF0000';
+                        this.ctx.font = `bold ${newBadgeSize}px Arial`;
+                        this.ctx.fillText('NEW! ', this.canvas.width - 15 - this.ctx.measureText(`Best: ${this.highScore}`).width, 5 + highScorePanelHeight / 2);
+                        this.ctx.fillStyle = this.newHighScore ? '#FFD700' : '#FFA500';
+                        this.ctx.font = `bold ${baseFontSize}px Arial`;
+                    }
+                    
+                    this.ctx.fillText(`Best: ${this.highScore}`, this.canvas.width - 15, 5 + highScorePanelHeight / 2);
+                    
+                    this.ctx.shadowBlur = 0;
+                    
+                    // Draw level progress bar in center-top
+                    const levelData = this.levels[this.currentLevel - 1];
+                    const progressBarWidth = isMobile ? this.canvas.width * 0.5 : 200;
+                    const progressBarHeight = isMobile ? 20 : 25;
+                    const progressBarX = (this.canvas.width - progressBarWidth) / 2;
+                    const progressBarY = 10;
+                    
+                    // Progress bar background
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    this.ctx.fillRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight);
+                    this.ctx.strokeStyle = levelData.color;
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight);
+                    
+                    // Progress fill
+                    const progress = Math.min(this.score / levelData.targetScore, 1);
+                    const fillWidth = (progressBarWidth - 4) * progress;
+                    this.ctx.fillStyle = levelData.color;
+                    this.ctx.fillRect(progressBarX + 2, progressBarY + 2, fillWidth, progressBarHeight - 4);
+                    
+                    // Level text
+                    this.ctx.fillStyle = '#FFFFFF';
+                    this.ctx.font = `bold ${Math.floor(baseFontSize * 0.8)}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.fillText(`Lv${this.currentLevel}: ${this.score}/${levelData.targetScore}`, progressBarX + progressBarWidth / 2, progressBarY + progressBarHeight / 2);
+                    
+                    // Draw sound toggle button in bottom-right corner
+                    const soundButtonSize = isMobile ? 35 : 40;
+                    const soundButtonX = this.canvas.width - soundButtonSize - 10;
+                    const soundButtonY = this.canvas.height - soundButtonSize - 10;
+                    
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    this.ctx.fillRect(soundButtonX, soundButtonY, soundButtonSize, soundButtonSize);
+                    this.ctx.strokeStyle = this.audioEnabled ? '#00FF00' : '#FF0000';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(soundButtonX, soundButtonY, soundButtonSize, soundButtonSize);
+                    
+                    this.ctx.fillStyle = this.audioEnabled ? '#00FF00' : '#FF0000';
+                    this.ctx.font = `${Math.floor(soundButtonSize * 0.6)}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.fillText(this.audioEnabled ? 'ðŸ”Š' : 'ðŸ”‡', soundButtonX + soundButtonSize / 2, soundButtonY + soundButtonSize / 2);
+                    
+                    // Draw power-up indicators
+                    // Stack power-up indicators vertically on small screens
+                    if (this.player) {
+                        this.ctx.font = `bold ${powerUpFontSize}px Arial`;
+                        
+                        if (isMobile) {
+                            // Mobile: Stack vertically with proper spacing - smaller and cleaner
+                            let yOffset = scorePanelHeight + 15;
+                            const lineHeight = powerUpFontSize + 6;
+                            
+                            if (this.player.shieldActive) {
+                                this.ctx.fillStyle = '#FFD700';
+                                this.ctx.textAlign = 'left';
+                                this.ctx.fillText(`ðŸ›¡ï¸ ${Math.ceil(this.player.shieldDuration / 1000)}s`, 10, yOffset);
+                                yOffset += lineHeight;
+                            }
+                            if (this.player.slowMotionActive) {
+                                this.ctx.fillStyle = '#9370DB';
+                                this.ctx.textAlign = 'left';
+                                this.ctx.fillText(`â° ${Math.ceil(this.player.slowMotionDuration / 1000)}s`, 10, yOffset);
+                                yOffset += lineHeight;
+                            }
+                            if (this.player.multiplierActive) {
+                                this.ctx.fillStyle = '#32CD32';
+                                this.ctx.textAlign = 'left';
+                                this.ctx.fillText(`â­ ${Math.ceil(this.player.multiplierDuration / 1000)}s`, 10, yOffset);
+                            }
+                        } else {
+                            // Desktop: Cleaner layout with icons
+                            let yOffset = scorePanelHeight + 15;
+                            const lineHeight = powerUpFontSize + 8;
+                            
+                            if (this.player.shieldActive) {
+                                this.ctx.fillStyle = '#FFD700';
+                                this.ctx.textAlign = 'left';
+                                this.ctx.fillText(`ðŸ›¡ï¸ ${Math.ceil(this.player.shieldDuration / 1000)}s`, 10, yOffset);
+                                yOffset += lineHeight;
+                            }
+                            if (this.player.slowMotionActive) {
+                                this.ctx.fillStyle = '#9370DB';
+                                this.ctx.textAlign = 'left';
+                                this.ctx.fillText(`â° ${Math.ceil(this.player.slowMotionDuration / 1000)}s`, 10, yOffset);
+                                yOffset += lineHeight;
+                            }
+                            if (this.player.multiplierActive) {
+                                this.ctx.fillStyle = '#32CD32';
+                                this.ctx.textAlign = 'left';
+                                this.ctx.fillText(`â­ ${Math.ceil(this.player.multiplierDuration / 1000)}s`, 10, yOffset);
+                            }
+                        }
+                    }
+                    
+                    this.ctx.restore();
+                }
+                
+                // Helper function to get AdSense-friendly high contrast colors
+                getLevelColor(originalColor) {
+                    const colorMap = {
+                        '#8B4513': '#D4A574', // Brown -> Light brown
+                        '#FF6347': '#FF8A65', // Red -> Light red
+                        '#00CED1': '#4DD0E1', // Cyan -> Light cyan
+                        '#FFD700': '#FFD54F', // Gold -> Light gold
+                        '#9370DB': '#B39DDB'  // Purple -> Light purple
+                    };
+                    return colorMap[originalColor] || originalColor;
+                }
+                
+                renderHowToPlayOverlay() {
+                    if (!this.showHowToPlay) return;
+                    
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const isMobile = window.innerWidth < 768;
+                    
+                    this.ctx.save();
+                    
+                    // Semi-transparent overlay
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    
+                    // Panel background
+                    const panelWidth = isMobile ? this.canvas.width * 0.9 : 500;
+                    const panelHeight = isMobile ? this.canvas.height * 0.8 : 400;
+                    const panelX = centerX - panelWidth / 2;
+                    const panelY = centerY - panelHeight / 2;
+                    
+                    this.ctx.fillStyle = 'rgba(20, 30, 48, 0.95)';
+                    this.ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+                    this.ctx.strokeStyle = '#00E5FF';
+                    this.ctx.lineWidth = 3;
+                    this.ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+                    
+                    const fontSize = Math.max(Math.floor(this.canvas.width / 50), 11);
+                    const titleSize = Math.floor(fontSize * 1.8);
+                    
+                    // Title
+                    this.ctx.fillStyle = '#00E5FF';
+                    this.ctx.font = `bold ${titleSize}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'top';
+                    this.ctx.fillText('ðŸ“– HOW TO PLAY', centerX, panelY + 20);
+                    
+                    // Instructions
+                    this.ctx.fillStyle = '#E0E0E0';
+                    this.ctx.font = `${fontSize}px Arial`;
+                    this.ctx.textAlign = 'left';
+                    let yPos = panelY + 60;
+                    const lineHeight = fontSize + 8;
+                    const leftMargin = panelX + 20;
+                    
+                    // Desktop controls
+                    this.ctx.fillStyle = '#FFD54F';
+                    this.ctx.font = `bold ${Math.floor(fontSize * 1.2)}px Arial`;
+                    this.ctx.fillText('ðŸ’» Desktop Controls:', leftMargin, yPos);
+                    yPos += lineHeight + 5;
+                    
+                    this.ctx.fillStyle = '#B0BEC5';
+                    this.ctx.font = `${fontSize}px Arial`;
+                    this.ctx.fillText('â€¢ Arrow Keys: Move your spaceship', leftMargin + 10, yPos);
+                    yPos += lineHeight;
+                    this.ctx.fillText('â€¢ â†‘ â†“ â† â†’: Navigate in all directions', leftMargin + 10, yPos);
+                    yPos += lineHeight + 10;
+                    
+                    // Mobile controls
+                    this.ctx.fillStyle = '#FFD54F';
+                    this.ctx.font = `bold ${Math.floor(fontSize * 1.2)}px Arial`;
+                    this.ctx.fillText('ðŸ“± Mobile/Touch Controls:', leftMargin, yPos);
+                    yPos += lineHeight + 5;
+                    
+                    this.ctx.fillStyle = '#B0BEC5';
+                    this.ctx.font = `${fontSize}px Arial`;
+                    this.ctx.fillText('â€¢ Touch left/right side to move horizontally', leftMargin + 10, yPos);
+                    yPos += lineHeight;
+                    this.ctx.fillText('â€¢ Touch top/bottom to move vertically', leftMargin + 10, yPos);
+                    yPos += lineHeight + 10;
+                    
+                    // Objective
+                    this.ctx.fillStyle = '#FFD54F';
+                    this.ctx.font = `bold ${Math.floor(fontSize * 1.2)}px Arial`;
+                    this.ctx.fillText('ðŸŽ¯ Objective:', leftMargin, yPos);
+                    yPos += lineHeight + 5;
+                    
+                    this.ctx.fillStyle = '#B0BEC5';
+                    this.ctx.font = `${fontSize}px Arial`;
+                    this.ctx.fillText('â€¢ Dodge falling meteors to earn points', leftMargin + 10, yPos);
+                    yPos += lineHeight;
+                    this.ctx.fillText('â€¢ Collect power-ups for special abilities', leftMargin + 10, yPos);
+                    yPos += lineHeight;
+                    this.ctx.fillText('â€¢ Reach target score to complete each level', leftMargin + 10, yPos);
+                    yPos += lineHeight;
+                    this.ctx.fillText('â€¢ Complete all 5 levels to win!', leftMargin + 10, yPos);
+                    
+                    // Close button
+                    const closeButtonWidth = 120;
+                    const closeButtonHeight = 44;
+                    const closeButtonX = centerX - closeButtonWidth / 2;
+                    const closeButtonY = panelY + panelHeight - closeButtonHeight - 15;
+                    
+                    this.ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+                    this.ctx.fillRect(closeButtonX, closeButtonY, closeButtonWidth, closeButtonHeight);
+                    this.ctx.strokeStyle = '#00E5FF';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(closeButtonX, closeButtonY, closeButtonWidth, closeButtonHeight);
+                    
+                    this.ctx.fillStyle = '#00E5FF';
+                    this.ctx.font = `bold ${fontSize}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.fillText('CLOSE', centerX, closeButtonY + closeButtonHeight / 2);
+                    
+                    this.ctx.restore();
+                }
+                
+                renderNameInputScreen() {
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const isMobile = window.innerWidth < 768;
+                    
+                    this.ctx.save();
+                    
+                    const titleFontSize = Math.floor(this.canvas.width / 14);
+                    const instructionFontSize = Math.max(Math.floor(this.canvas.width / 45), 11);
+                    const inputFontSize = Math.max(Math.floor(this.canvas.width / 30), 14);
+                    
+                    // Stylish animated title (same as start screen)
+                    const pulse = Math.sin(Date.now() * 0.003) * 0.3 + 0.7;
+                    const wave = Math.sin(Date.now() * 0.002) * 3;
+                    
+                    this.ctx.font = `bold ${titleFontSize}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    
+                    // Outer glow
+                    this.ctx.shadowColor = `rgba(138, 43, 226, ${pulse * 0.8})`;
+                    this.ctx.shadowBlur = 40;
+                    this.ctx.fillStyle = `rgba(138, 43, 226, ${pulse * 0.3})`;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 120 + wave);
+                    
+                    // Middle glow
+                    this.ctx.shadowColor = `rgba(0, 229, 255, ${pulse})`;
+                    this.ctx.shadowBlur = 25;
+                    this.ctx.fillStyle = `rgba(0, 229, 255, ${pulse * 0.5})`;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 120 + wave);
+                    
+                    // Gradient
+                    const gradient = this.ctx.createLinearGradient(
+                        centerX - 200, centerY - 120,
+                        centerX + 200, centerY - 120
+                    );
+                    gradient.addColorStop(0, '#00E5FF');
+                    gradient.addColorStop(0.5, '#00FFFF');
+                    gradient.addColorStop(1, '#7B68EE');
+                    
+                    this.ctx.shadowColor = `rgba(255, 255, 255, ${pulse})`;
+                    this.ctx.shadowBlur = 15;
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 120 + wave);
+                    
+                    // Highlight
+                    this.ctx.shadowBlur = 5;
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${pulse * 0.4})`;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 121 + wave);
+                    
+                    // Animated subtitle
+                    const subtitlePulse = Math.sin(Date.now() * 0.004) * 0.2 + 0.8;
+                    this.ctx.shadowColor = `rgba(255, 215, 0, ${subtitlePulse * 0.6})`;
+                    this.ctx.shadowBlur = 12;
+                    this.ctx.fillStyle = '#FFD700';
+                    this.ctx.font = `${Math.floor(instructionFontSize * 1.2)}px Arial`;
+                    this.ctx.fillText('ðŸš€ Space Action Game ðŸš€', centerX, centerY - 90);
+                    
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${subtitlePulse * 0.3})`;
+                    this.ctx.fillText('ðŸš€ Space Action Game ðŸš€', centerX, centerY - 90);
+                    
+                    // Game info
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = '#90CAF9';
+                    this.ctx.font = `${Math.floor(instructionFontSize * 0.95)}px Arial`;
+                    this.ctx.fillText(`Navigate through ${this.maxLevel} challenging levels!`, centerX, centerY - 65);
+                    
+                    // Instructions
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.font = `${instructionFontSize}px Arial`;
+                    this.ctx.fillText('Enter Your Name:', centerX, centerY - 40);
+                    
+                    // Input box
+                    const inputWidth = Math.max(isMobile ? this.canvas.width * 0.7 : 300, 250);
+                    const inputHeight = 50;
+                    const inputX = centerX - inputWidth / 2;
+                    const inputY = centerY - 10;
+                    
+                    // Draw input background
+                    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    this.ctx.fillRect(inputX, inputY, inputWidth, inputHeight);
+                    
+                    // Draw input border
+                    this.ctx.strokeStyle = '#00FFFF';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(inputX, inputY, inputWidth, inputHeight);
+                    
+                    // Draw player name with cursor
+                    this.ctx.fillStyle = '#FFFFFF';
+                    this.ctx.font = `${inputFontSize}px Arial`;
+                    this.ctx.textAlign = 'left';
+                    const displayName = this.playerName || '';
+                    const cursorBlink = Math.floor(Date.now() / 500) % 2 === 0 ? '|' : '';
+                    this.ctx.fillText(displayName + cursorBlink, inputX + 15, inputY + inputHeight / 2);
+                    
+                    // Start button (only show if name is entered)
+                    if (this.playerName.length > 0) {
+                        const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.6 : 220, 200);
+                        const buttonHeight = Math.max(60, 44);
+                        const buttonX = centerX - buttonWidth / 2;
+                        const buttonY = centerY + 60;
+                        
+                        // Draw button
+                        this.ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+                        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.strokeStyle = '#00FFFF';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                        this.ctx.shadowBlur = 10;
+                        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = '#00E5FF';
+                        this.ctx.font = `bold ${Math.max(Math.floor(this.canvas.width / 35), 13)}px Arial`;
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('START ADVENTURE', centerX, buttonY + buttonHeight / 2);
+                    } else {
+                        // Show hint with better contrast
+                        this.ctx.fillStyle = '#90A4AE';
+                        this.ctx.font = `${Math.floor(instructionFontSize * 0.9)}px Arial`;
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('(Type your name and press Enter or click Start)', centerX, centerY + 80);
+                    }
+                    
+                    // Developer credits at bottom
+                    this.ctx.fillStyle = '#78909C';
+                    this.ctx.font = `${Math.floor(instructionFontSize * 0.85)}px Arial`;
+                    this.ctx.fillText('Developed by CodeByArt', centerX, this.canvas.height - 15);
+                    this.ctx.fillStyle = '#90A4AE';
+                    this.ctx.font = `${Math.floor(instructionFontSize * 0.7)}px Arial`;
+                    this.ctx.fillText('Â© 2025 - HTML5 Game', centerX, this.canvas.height - 3);
+                    
+                    this.ctx.restore();
+                    
+                    // Handle keyboard input for name
+                    if (!this.nameInputListener) {
+                        this.nameInputListener = (e) => {
+                            if (this.gameState !== 'nameInput') return;
+                            
+                            if (e.key === 'Backspace') {
+                                e.preventDefault();
+                                this.playerName = this.playerName.slice(0, -1);
+                            } else if (e.key === 'Enter' && this.playerName.length > 0) {
+                                e.preventDefault();
+                                this.gameState = 'start';
+                            } else if (e.key.length === 1 && this.playerName.length < 15) {
+                                // Only allow alphanumeric and spaces
+                                if (/[a-zA-Z0-9 ]/.test(e.key)) {
+                                    this.playerName += e.key;
+                                }
+                            }
+                        };
+                        document.addEventListener('keydown', this.nameInputListener);
+                    }
+                    
+                    // Handle click on start button
+                    if (!this.nameStartClickListener) {
+                        this.nameStartClickListener = (e) => {
+                            if (this.gameState !== 'nameInput' || this.playerName.length === 0) return;
+                            
+                            const rect = this.canvas.getBoundingClientRect();
+                            const clickX = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+                            const clickY = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+                            
+                            const scaleX = this.canvas.width / rect.width;
+                            const scaleY = this.canvas.height / rect.height;
+                            const canvasX = clickX * scaleX;
+                            const canvasY = clickY * scaleY;
+                            
+                            const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.6 : 220, 200);
+                            const buttonHeight = Math.max(60, 44);
+                            const buttonX = centerX - buttonWidth / 2;
+                            const buttonY = centerY + 60;
+                            
+                            if (canvasX >= buttonX && canvasX <= buttonX + buttonWidth &&
+                                canvasY >= buttonY && canvasY <= buttonY + buttonHeight) {
+                                this.gameState = 'start';
+                            }
+                        };
+                        this.canvas.addEventListener('click', this.nameStartClickListener);
+                        this.canvas.addEventListener('touchstart', this.nameStartClickListener);
+                    }
+                }
+                
+                renderStartScreen() {
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const isMobile = window.innerWidth < 768;
+                    
+                    this.ctx.save();
+                    
+                    // Scale font sizes - AdSense friendly and readable
+                    const titleFontSize = Math.floor(this.canvas.width / 14);
+                    const instructionFontSize = Math.max(Math.floor(this.canvas.width / 45), 11);
+                    const buttonFontSize = Math.max(Math.floor(this.canvas.width / 35), 13);
+                    
+                    // Stylish animated title with multiple effects
+                    const pulse = Math.sin(Date.now() * 0.003) * 0.3 + 0.7;
+                    const wave = Math.sin(Date.now() * 0.002) * 3; // Subtle wave motion
+                    
+                    // Draw title with layered glow effect
+                    this.ctx.font = `bold ${titleFontSize}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    
+                    // Outer glow layer (purple/pink)
+                    this.ctx.shadowColor = `rgba(138, 43, 226, ${pulse * 0.8})`;
+                    this.ctx.shadowBlur = 40;
+                    this.ctx.fillStyle = `rgba(138, 43, 226, ${pulse * 0.3})`;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 140 + wave);
+                    
+                    // Middle glow layer (cyan)
+                    this.ctx.shadowColor = `rgba(0, 229, 255, ${pulse})`;
+                    this.ctx.shadowBlur = 25;
+                    this.ctx.fillStyle = `rgba(0, 229, 255, ${pulse * 0.5})`;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 140 + wave);
+                    
+                    // Create gradient for main title
+                    const gradient = this.ctx.createLinearGradient(
+                        centerX - 200, centerY - 140,
+                        centerX + 200, centerY - 140
+                    );
+                    gradient.addColorStop(0, '#00E5FF');    // Cyan
+                    gradient.addColorStop(0.5, '#00FFFF');  // Bright cyan
+                    gradient.addColorStop(1, '#7B68EE');    // Medium slate blue
+                    
+                    // Main title with gradient
+                    this.ctx.shadowColor = `rgba(255, 255, 255, ${pulse})`;
+                    this.ctx.shadowBlur = 15;
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 140 + wave);
+                    
+                    // Add white highlight on top
+                    this.ctx.shadowBlur = 5;
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${pulse * 0.4})`;
+                    this.ctx.fillText('METEOR DODGE', centerX, centerY - 141 + wave);
+                    
+                    // Animated subtitle with glow
+                    const subtitlePulse = Math.sin(Date.now() * 0.004) * 0.2 + 0.8;
+                    this.ctx.shadowColor = `rgba(255, 215, 0, ${subtitlePulse * 0.6})`;
+                    this.ctx.shadowBlur = 12;
+                    this.ctx.fillStyle = '#FFD700'; // Gold color
+                    this.ctx.font = `${Math.floor(instructionFontSize * 1.2)}px Arial`;
+                    this.ctx.fillText('ðŸš€ Space Action Game ðŸš€', centerX, centerY - 110);
+                    
+                    // Add white overlay for extra shine
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${subtitlePulse * 0.3})`;
+                    this.ctx.fillText('ðŸš€ Space Action Game ðŸš€', centerX, centerY - 110);
+                    
+                    // Display player name
+                    const levelInfo = this.levels[this.currentLevel - 1];
+                    this.ctx.shadowBlur = 5;
+                    this.ctx.fillStyle = '#FFD54F';
+                    this.ctx.font = `bold ${Math.floor(instructionFontSize * 1.2)}px Arial`;
+                    this.ctx.fillText(`ðŸ‘¤ ${this.playerName}`, centerX, centerY - 80);
+                    
+                    // Draw all level boxes
+                    this.ctx.shadowBlur = 0;
+                    const boxWidth = isMobile ? 48 : 55;
+                    const boxHeight = isMobile ? 32 : 38;
+                    const boxSpacing = isMobile ? 10 : 12;
+                    const totalWidth = (boxWidth * this.maxLevel) + (boxSpacing * (this.maxLevel - 1));
+                    const startX = centerX - totalWidth / 2;
+                    const boxY = centerY - 55;
+                    
+                    for (let i = 0; i < this.maxLevel; i++) {
+                        const level = this.levels[i];
+                        const boxX = startX + (i * (boxWidth + boxSpacing));
+                        const isCurrentLevel = (i + 1) === this.currentLevel;
+                        
+                        // Draw box background
+                        if (isCurrentLevel) {
+                            // Highlighted current level with glow
+                            this.ctx.fillStyle = 'rgba(0, 229, 255, 0.3)';
+                            this.ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+                            this.ctx.strokeStyle = '#00E5FF';
+                            this.ctx.lineWidth = 3;
+                            this.ctx.shadowColor = 'rgba(0, 229, 255, 0.6)';
+                            this.ctx.shadowBlur = 10;
+                        } else {
+                            // Other levels
+                            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                            this.ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+                            this.ctx.strokeStyle = this.getLevelColor(level.color);
+                            this.ctx.lineWidth = 2;
+                            this.ctx.shadowBlur = 0;
+                        }
+                        this.ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+                        
+                        // Draw level number
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = isCurrentLevel ? '#00E5FF' : this.getLevelColor(level.color);
+                        this.ctx.font = `bold ${Math.floor(instructionFontSize * 1.05)}px Arial`;
+                        this.ctx.textAlign = 'center';
+                        this.ctx.textBaseline = 'middle';
+                        this.ctx.fillText(`${i + 1}`, boxX + boxWidth / 2, boxY + boxHeight / 2);
+                        
+                        // Draw level name below box (smaller font)
+                        const nameFontSize = Math.floor(instructionFontSize * 0.65);
+                        this.ctx.fillStyle = isCurrentLevel ? '#00E5FF' : '#90A4AE';
+                        this.ctx.font = `${nameFontSize}px Arial`;
+                        this.ctx.textBaseline = 'top';
+                        
+                        // Shorten level names for display
+                        const shortNames = ['Asteroid', 'Storm', 'Comet', 'Supernova', 'Black Hole'];
+                        this.ctx.fillText(shortNames[i], boxX + boxWidth / 2, boxY + boxHeight + 3);
+                        
+                        // Draw target points below name
+                        this.ctx.fillStyle = isCurrentLevel ? '#FFD54F' : '#78909C';
+                        this.ctx.font = `${Math.floor(nameFontSize * 0.9)}px Arial`;
+                        this.ctx.fillText(`${level.targetScore}`, boxX + boxWidth / 2, boxY + boxHeight + 3 + nameFontSize + 2);
+                    }
+                    
+                    // Current level info (removed since it's now shown in boxes)
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = this.getLevelColor(levelInfo.color);
+                    this.ctx.font = `bold ${Math.floor(instructionFontSize * 1.05)}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'top';
+                    this.ctx.fillText(`${levelInfo.name} - Target: ${levelInfo.targetScore} points`, centerX, centerY + 15);
+                    
+                    // Show "How to Play" button
+                    const howToPlayWidth = Math.max(isMobile ? this.canvas.width * 0.45 : 160, 140);
+                    const howToPlayHeight = Math.max(45, 44);
+                    const howToPlayX = centerX - howToPlayWidth / 2;
+                    const howToPlayY = centerY + 38;
+                    
+                    // Draw How to Play button
+                    this.ctx.fillStyle = 'rgba(255, 167, 38, 0.2)';
+                    this.ctx.fillRect(howToPlayX, howToPlayY, howToPlayWidth, howToPlayHeight);
+                    this.ctx.strokeStyle = '#FFA726';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.shadowColor = 'rgba(255, 167, 38, 0.4)';
+                    this.ctx.shadowBlur = 8;
+                    this.ctx.strokeRect(howToPlayX, howToPlayY, howToPlayWidth, howToPlayHeight);
+                    
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = '#FFB74D';
+                    this.ctx.font = `bold ${Math.floor(buttonFontSize * 0.9)}px Arial`;
+                    this.ctx.fillText('ðŸ“– HOW TO PLAY', centerX, howToPlayY + howToPlayHeight / 2);
+                    
+                    // Show "Start Game" button
+                    const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.55 : 200, 180);
+                    const buttonHeight = Math.max(55, 44);
+                    const buttonX = centerX - buttonWidth / 2;
+                    const buttonY = centerY + 93;
+                    
+                    // Draw button with better contrast
+                    this.ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+                    this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                    
+                    this.ctx.strokeStyle = '#00E5FF';
+                    this.ctx.lineWidth = 3;
+                    this.ctx.shadowColor = 'rgba(0, 229, 255, 0.6)';
+                    this.ctx.shadowBlur = 12;
+                    this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                    
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = '#00E5FF';
+                    this.ctx.font = `bold ${buttonFontSize}px Arial`;
+                    this.ctx.fillText('ðŸš€ START GAME', centerX, buttonY + buttonHeight / 2);
+                    
+                    // Developer credits at bottom
+                    this.ctx.fillStyle = '#78909C';
+                    this.ctx.font = `${Math.floor(instructionFontSize * 0.8)}px Arial`;
+                    this.ctx.fillText('Developed by CodeByArt', centerX, this.canvas.height - 12);
+                    this.ctx.fillStyle = '#90A4AE';
+                    this.ctx.font = `${Math.floor(instructionFontSize * 0.7)}px Arial`;
+                    this.ctx.fillText('Â© 2025 - HTML5 Game', centerX, this.canvas.height - 3);
+                    
+                    this.ctx.restore();
+                    
+                    // Handle click/touch for buttons
+                    if (!this.startClickListener) {
+                        this.startClickListener = (e) => {
+                            if (this.gameState === 'start') {
+                                const rect = this.canvas.getBoundingClientRect();
+                                const clickX = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+                                const clickY = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+                                
+                                const scaleX = this.canvas.width / rect.width;
+                                const scaleY = this.canvas.height / rect.height;
+                                const canvasX = clickX * scaleX;
+                                const canvasY = clickY * scaleY;
+                                
+                                const centerX = this.canvas.width / 2;
+                                const centerY = this.canvas.height / 2;
+                                const isMobile = window.innerWidth < 768;
+                                
+                                // If overlay is open, check close button first
+                                if (this.showHowToPlay) {
+                                    const panelWidth = isMobile ? this.canvas.width * 0.9 : 500;
+                                    const panelHeight = isMobile ? this.canvas.height * 0.8 : 400;
+                                    const panelX = centerX - panelWidth / 2;
+                                    const panelY = centerY - panelHeight / 2;
+                                    
+                                    const closeButtonWidth = 120;
+                                    const closeButtonHeight = 44;
+                                    const closeButtonX = centerX - closeButtonWidth / 2;
+                                    const closeButtonY = panelY + panelHeight - closeButtonHeight - 15;
+                                    
+                                    if (canvasX >= closeButtonX && canvasX <= closeButtonX + closeButtonWidth &&
+                                        canvasY >= closeButtonY && canvasY <= closeButtonY + closeButtonHeight) {
+                                        this.showHowToPlay = false;
+                                        return;
+                                    }
+                                    
+                                    // Click outside overlay closes it
+                                    if (canvasX < panelX || canvasX > panelX + panelWidth ||
+                                        canvasY < panelY || canvasY > panelY + panelHeight) {
+                                        this.showHowToPlay = false;
+                                        return;
+                                    }
+                                    return; // Don't process other buttons when overlay is open
+                                }
+                                
+                                // Check How to Play button
+                                const howToPlayWidth = Math.max(isMobile ? this.canvas.width * 0.45 : 160, 140);
+                                const howToPlayHeight = Math.max(45, 44);
+                                const howToPlayX = centerX - howToPlayWidth / 2;
+                                const howToPlayY = centerY + 38;
+                                
+                                if (canvasX >= howToPlayX && canvasX <= howToPlayX + howToPlayWidth &&
+                                    canvasY >= howToPlayY && canvasY <= howToPlayY + howToPlayHeight) {
+                                    this.showHowToPlay = true;
+                                    return;
+                                }
+                                
+                                // Check Start button
+                                const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.55 : 200, 180);
+                                const buttonHeight = Math.max(55, 44);
+                                const buttonX = centerX - buttonWidth / 2;
+                                const buttonY = centerY + 93;
+                                
+                                if (canvasX >= buttonX && canvasX <= buttonX + buttonWidth &&
+                                    canvasY >= buttonY && canvasY <= buttonY + buttonHeight) {
+                                    this.codebyart_startGame();
+                                }
+                            }
+                        };
+                        
+                        this.canvas.addEventListener('click', this.startClickListener);
+                        this.canvas.addEventListener('touchstart', this.startClickListener);
+                    }
+                }
+                
+                renderLevelCompleteScreen() {
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const isMobile = window.innerWidth < 768;
+                    
+                    this.ctx.save();
+                    
+                    const titleFontSize = Math.floor(this.canvas.width / 14);
+                    const labelFontSize = Math.max(Math.floor(this.canvas.width / 25), 14);
+                    const scoreFontSize = Math.max(Math.floor(this.canvas.width / 18), 18);
+                    const buttonFontSize = Math.max(Math.floor(this.canvas.width / 35), 13);
+                    
+                    // Animated "LEVEL COMPLETE!" message
+                    const pulse = Math.sin(Date.now() * 0.005) * 0.3 + 0.7;
+                    this.ctx.fillStyle = '#00FF00';
+                    this.ctx.font = `bold ${titleFontSize}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.shadowColor = `rgba(0, 255, 0, ${pulse})`;
+                    this.ctx.shadowBlur = 25;
+                    this.ctx.fillText('LEVEL COMPLETE!', centerX, centerY - 120);
+                    
+                    // Level info
+                    const completedLevel = this.levels[this.currentLevel - 1];
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.fillStyle = completedLevel.color;
+                    this.ctx.font = `bold ${labelFontSize}px Arial`;
+                    this.ctx.fillText(`${completedLevel.name}`, centerX, centerY - 80);
+                    
+                    // Score info
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = '#FFFFFF';
+                    this.ctx.font = `${labelFontSize}px Arial`;
+                    this.ctx.fillText('Level Score', centerX, centerY - 40);
+                    
+                    this.ctx.fillStyle = '#00FFFF';
+                    this.ctx.font = `bold ${scoreFontSize}px Arial`;
+                    this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                    this.ctx.shadowBlur = 15;
+                    this.ctx.fillText(this.levelScore.toString(), centerX, centerY - 5);
+                    
+                    // Total score
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = '#FFD700';
+                    this.ctx.font = `bold ${Math.floor(labelFontSize * 0.9)}px Arial`;
+                    this.ctx.fillText(`Total Score: ${this.totalScore}`, centerX, centerY + 35);
+                    
+                    // Next level info or game complete
+                    if (this.currentLevel < this.maxLevel) {
+                        const nextLevel = this.levels[this.currentLevel];
+                        this.ctx.fillStyle = '#FFFFFF';
+                        this.ctx.font = `${Math.floor(labelFontSize * 0.8)}px Arial`;
+                        this.ctx.fillText(`Next: ${nextLevel.name}`, centerX, centerY + 60);
+                        
+                        // Continue button
+                        const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.6 : 220, 200);
+                        const buttonHeight = Math.max(60, 44);
+                        const buttonX = centerX - buttonWidth / 2;
+                        const buttonY = centerY + 85;
+                        
+                        this.ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+                        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.strokeStyle = '#00FF00';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.shadowColor = 'rgba(0, 255, 0, 0.5)';
+                        this.ctx.shadowBlur = 10;
+                        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = '#00FF00';
+                        this.ctx.font = `bold ${buttonFontSize}px Arial`;
+                        this.ctx.fillText('NEXT LEVEL', centerX, buttonY + buttonHeight / 2);
+                    } else {
+                        // Game complete!
+                        this.ctx.fillStyle = '#FFD700';
+                        this.ctx.font = `bold ${Math.floor(labelFontSize * 1.1)}px Arial`;
+                        this.ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
+                        this.ctx.shadowBlur = 15;
+                        this.ctx.fillText('ðŸŽ‰ ALL LEVELS COMPLETE! ðŸŽ‰', centerX, centerY + 65);
+                        
+                        // Play again button
+                        const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.6 : 220, 200);
+                        const buttonHeight = Math.max(60, 44);
+                        const buttonX = centerX - buttonWidth / 2;
+                        const buttonY = centerY + 100;
+                        
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+                        this.ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.strokeStyle = '#00FFFF';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                        this.ctx.shadowBlur = 10;
+                        this.ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = '#00FFFF';
+                        this.ctx.font = `bold ${buttonFontSize}px Arial`;
+                        this.ctx.fillText('PLAY AGAIN', centerX, buttonY + buttonHeight / 2);
+                    }
+                    
+                    this.ctx.restore();
+                    
+                    // Handle click to continue
+                    if (!this.levelCompleteClickListener) {
+                        this.levelCompleteClickListener = (e) => {
+                            if (this.gameState !== 'levelComplete') return;
+                            
+                            const rect = this.canvas.getBoundingClientRect();
+                            const clickX = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+                            const clickY = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+                            
+                            const scaleX = this.canvas.width / rect.width;
+                            const scaleY = this.canvas.height / rect.height;
+                            const canvasX = clickX * scaleX;
+                            const canvasY = clickY * scaleY;
+                            
+                            if (canvasX >= 0 && canvasX <= this.canvas.width &&
+                                canvasY >= 0 && canvasY <= this.canvas.height) {
+                                if (this.currentLevel < this.maxLevel) {
+                                    this.currentLevel++;
+                                    this.gameState = 'start';
+                                } else {
+                                    // Reset game
+                                    this.currentLevel = 1;
+                                    this.totalScore = 0;
+                                    this.gameState = 'nameInput';
+                                    this.playerName = '';
+                                }
+                            }
+                        };
+                        this.canvas.addEventListener('click', this.levelCompleteClickListener);
+                        this.canvas.addEventListener('touchstart', this.levelCompleteClickListener);
+                    }
+                }
+                
+                renderGameOverScreen() {
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const isMobile = window.innerWidth < 768;
+                    
+                    this.ctx.save();
+                    
+                    // Scale font sizes based on canvas dimensions - smaller and cleaner
+                    const titleFontSize = Math.floor(this.canvas.width / 14); // Reduced from /12
+                    const labelFontSize = Math.max(Math.floor(this.canvas.width / 25), 14); // Reduced from /20
+                    const scoreFontSize = Math.max(Math.floor(this.canvas.width / 18), 18); // Reduced from /15
+                    const highScoreFontSize = Math.max(Math.floor(this.canvas.width / 45), 11); // Reduced from /35
+                    const buttonFontSize = Math.max(Math.floor(this.canvas.width / 35), 13); // Reduced from /30
+                    
+                    // Display "GAME OVER" message with pulsing effect
+                    const pulse = Math.sin(Date.now() * 0.005) * 0.3 + 0.7;
+                    this.ctx.fillStyle = '#FF6347';
+                    this.ctx.font = `bold ${titleFontSize}px Arial`;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.shadowColor = `rgba(255, 99, 71, ${pulse})`;
+                    this.ctx.shadowBlur = 25;
+                    this.ctx.fillText('GAME OVER', centerX, centerY - 120);
+                    
+                    // Show level info
+                    const levelData = this.levels[this.currentLevel - 1];
+                    this.ctx.shadowBlur = 5;
+                    this.ctx.fillStyle = levelData.color;
+                    this.ctx.font = `bold ${Math.floor(labelFontSize * 0.9)}px Arial`;
+                    this.ctx.fillText(`Level ${this.currentLevel}: ${levelData.name}`, centerX, centerY - 80);
+                    
+                    // Show final score prominently
+                    this.ctx.shadowBlur = 0;
+                    this.ctx.fillStyle = '#FFFFFF';
+                    this.ctx.font = `bold ${labelFontSize}px Arial`;
+                    this.ctx.fillText('Final Score', centerX, centerY - 40);
+                    
+                    // Highlight if new high score
+                    if (this.score >= this.highScore && this.score > 0) {
+                        this.ctx.fillStyle = '#FFD700';
+                        this.ctx.font = `bold ${scoreFontSize}px Arial`;
+                        this.ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
+                        this.ctx.shadowBlur = 20;
+                        this.ctx.fillText(this.score.toString(), centerX, centerY + 10);
+                        
+                        // Add "NEW RECORD!" text
+                        this.ctx.shadowBlur = 10;
+                        this.ctx.fillStyle = '#FF0000';
+                        this.ctx.font = `bold ${Math.floor(labelFontSize * 0.8)}px Arial`;
+                        this.ctx.fillText('ðŸŽ‰ NEW RECORD! ðŸŽ‰', centerX, centerY + 50);
+                    } else {
+                        this.ctx.fillStyle = '#00FFFF';
+                        this.ctx.font = `bold ${scoreFontSize}px Arial`;
+                        this.ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                        this.ctx.shadowBlur = 15;
+                        this.ctx.fillText(this.score.toString(), centerX, centerY + 10);
+                        
+                        // Display high score
+                        this.ctx.shadowBlur = 5;
+                        this.ctx.fillStyle = '#FFD700';
+                        this.ctx.font = `${highScoreFontSize}px Arial`;
+                        this.ctx.fillText(`ðŸ† Best: ${this.highScore}`, centerX, centerY + 50);
+                    }
+                    
+                    // Check if enough time has passed (3-second minimum pause)
+                    const timeSinceGameOver = Date.now() - this.gameOverTime;
+                    const canRestart = timeSinceGameOver >= 3000;
+                    
+                    if (canRestart) {
+                        // Show two buttons: "Try Again" and "Home"
+                        const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.4 : 180, 160);
+                        const buttonHeight = Math.max(55, 44);
+                        const buttonSpacing = 20;
+                        
+                        // "Try Again" button (left)
+                        const tryAgainX = centerX - buttonWidth - buttonSpacing / 2;
+                        const buttonY = centerY + 85;
+                        
+                        this.ctx.fillStyle = 'rgba(0, 229, 255, 0.25)';
+                        this.ctx.fillRect(tryAgainX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.strokeStyle = '#00E5FF';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.shadowColor = 'rgba(0, 229, 255, 0.5)';
+                        this.ctx.shadowBlur = 10;
+                        this.ctx.strokeRect(tryAgainX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = '#00E5FF';
+                        this.ctx.font = `bold ${Math.floor(buttonFontSize * 0.95)}px Arial`;
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('ðŸ”„ TRY AGAIN', tryAgainX + buttonWidth / 2, buttonY + buttonHeight / 2);
+                        
+                        // "Home" button (right)
+                        const homeX = centerX + buttonSpacing / 2;
+                        
+                        this.ctx.fillStyle = 'rgba(255, 167, 38, 0.25)';
+                        this.ctx.fillRect(homeX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.strokeStyle = '#FFA726';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.shadowColor = 'rgba(255, 167, 38, 0.5)';
+                        this.ctx.shadowBlur = 10;
+                        this.ctx.strokeRect(homeX, buttonY, buttonWidth, buttonHeight);
+                        
+                        this.ctx.shadowBlur = 0;
+                        this.ctx.fillStyle = '#FFB74D';
+                        this.ctx.font = `bold ${Math.floor(buttonFontSize * 0.95)}px Arial`;
+                        this.ctx.fillText('ðŸ  HOME', homeX + buttonWidth / 2, buttonY + buttonHeight / 2);
+                    } else {
+                        // Draw disabled message with countdown
+                        this.ctx.fillStyle = '#90A4AE';
+                        this.ctx.font = `${Math.floor(buttonFontSize * 0.9)}px Arial`;
+                        this.ctx.textAlign = 'center';
+                        const remainingSeconds = Math.ceil((3000 - timeSinceGameOver) / 1000);
+                        this.ctx.fillText(`Please wait ${remainingSeconds} second${remainingSeconds > 1 ? 's' : ''}...`, centerX, centerY + 110);
+                    }
+                    
+                    this.ctx.restore();
+                    
+                    // Handle click/touch for buttons (only if 3 seconds have passed)
+                    if (!this.gameOverClickListener) {
+                        this.gameOverClickListener = (e) => {
+                            if (this.gameState === 'gameover') {
+                                const timeSinceGameOver = Date.now() - this.gameOverTime;
+                                
+                                // Implement 3-second minimum pause before allowing interaction
+                                if (timeSinceGameOver >= 3000) {
+                                    const rect = this.canvas.getBoundingClientRect();
+                                    const clickX = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+                                    const clickY = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+                                    
+                                    const scaleX = this.canvas.width / rect.width;
+                                    const scaleY = this.canvas.height / rect.height;
+                                    const canvasX = clickX * scaleX;
+                                    const canvasY = clickY * scaleY;
+                                    
+                                    const centerX = this.canvas.width / 2;
+                                    const centerY = this.canvas.height / 2;
+                                    const isMobile = window.innerWidth < 768;
+                                    
+                                    const buttonWidth = Math.max(isMobile ? this.canvas.width * 0.4 : 180, 160);
+                                    const buttonHeight = Math.max(55, 44);
+                                    const buttonSpacing = 20;
+                                    const buttonY = centerY + 85;
+                                    
+                                    // Check "Try Again" button (left)
+                                    const tryAgainX = centerX - buttonWidth - buttonSpacing / 2;
+                                    if (canvasX >= tryAgainX && canvasX <= tryAgainX + buttonWidth &&
+                                        canvasY >= buttonY && canvasY <= buttonY + buttonHeight) {
+                                        // Restart same level
+                                        this.codebyart_startGame();
+                                        return;
+                                    }
+                                    
+                                    // Check "Home" button (right)
+                                    const homeX = centerX + buttonSpacing / 2;
+                                    if (canvasX >= homeX && canvasX <= homeX + buttonWidth &&
+                                        canvasY >= buttonY && canvasY <= buttonY + buttonHeight) {
+                                        // Go back to start screen (keeps current level)
+                                        this.gameState = 'start';
+                                        return;
+                                    }
+                                }
+                            }
+                        };
+                        
+                        this.canvas.addEventListener('click', this.gameOverClickListener);
+                        this.canvas.addEventListener('touchstart', this.gameOverClickListener);
+                    }
+                }
+                
+                // Create codebyart_startGame() method to reset all state
+                codebyart_startGame() {
+                    // Set gameState to 'playing'
+                    this.gameState = 'playing';
+                    
+                    // Reset score to 0
+                    this.score = 0;
+                    this.newHighScore = false;
+                    
+                    // Reset game time
+                    this.gameTime = 0;
+                    this.lastTimestamp = 0;
+                    
+                    // Resume audio context if suspended (browser autoplay policy)
+                    if (this.audioContext && this.audioContext.state === 'suspended') {
+                        this.audioContext.resume();
+                    }
+                    
+                    // Start background music
+                    this.startBackgroundMusic();
+                    
+                    // Create player at center position
+                    this.player = new codebyart_Player(
+                        this.canvas.width / 2,
+                        this.canvas.height / 2
+                    );
+                    
+                    // Clear all entity arrays
+                    this.meteors = [];
+                    this.powerUps = [];
+                    this.particles = [];
+                    
+                    // Apply level-specific settings
+                    const levelData = this.levels[this.currentLevel - 1];
+                    this.meteorSpawnRate = levelData.spawnRate;
+                    this.speedMultiplier = levelData.meteorSpeed;
+                    this.difficultyLevel = 0; // Starting difficulty level
+                    this.lastMeteorSpawn = 0;
+                    
+                    // Reset power-up spawn tracking
+                    this.lastPowerUpSpawn = {
+                        shield: 0,
+                        slowmo: 0,
+                        multiplier: 0
+                    };
+                }
+                
+                // Clean up event listeners if game is destroyed
+                codebyart_destroy() {
+                    // Remove keyboard event listeners
+                    if (this.handleKeyDown) {
+                        document.removeEventListener('keydown', this.handleKeyDown);
+                    }
+                    if (this.handleKeyUp) {
+                        document.removeEventListener('keyup', this.handleKeyUp);
+                    }
+                    
+                    // Remove touch event listeners
+                    if (this.handleTouchStart) {
+                        this.canvas.removeEventListener('touchstart', this.handleTouchStart);
+                    }
+                    if (this.handleTouchMove) {
+                        this.canvas.removeEventListener('touchmove', this.handleTouchMove);
+                    }
+                    if (this.handleTouchEnd) {
+                        this.canvas.removeEventListener('touchend', this.handleTouchEnd);
+                        this.canvas.removeEventListener('touchcancel', this.handleTouchEnd);
+                    }
+                    
+                    // Remove window event listeners
+                    if (this.handleResize) {
+                        window.removeEventListener('resize', this.handleResize);
+                        window.removeEventListener('orientationchange', this.handleResize);
+                    }
+                    
+                    // Remove canvas click listeners
+                    if (this.startClickListener) {
+                        this.canvas.removeEventListener('click', this.startClickListener);
+                        this.canvas.removeEventListener('touchstart', this.startClickListener);
+                    }
+                    if (this.gameOverClickListener) {
+                        this.canvas.removeEventListener('click', this.gameOverClickListener);
+                        this.canvas.removeEventListener('touchstart', this.gameOverClickListener);
+                    }
+                    if (this.handleSoundToggle) {
+                        this.canvas.removeEventListener('click', this.handleSoundToggle);
+                        this.canvas.removeEventListener('touchstart', this.handleSoundToggle);
+                    }
+                }
+            }
+            
+            // Player Ship Class
+            class codebyart_Player {
+                constructor(x, y) {
+                    // Initial position (center of canvas)
+                    this.x = x;
+                    this.y = y;
+                    
+                    // Ship dimensions (40x40 pixels)
+                    this.width = 40;
+                    this.height = 40;
+                    
+                    // Movement speed (5 pixels per frame)
+                    this.speed = 5;
+                    
+                    // Ship color (#00FFFF cyan)
+                    this.color = '#00FFFF';
+                    
+                    // Initialize power-up state properties
+                    this.shieldActive = false;
+                    this.shieldDuration = 0;
+                    this.shieldRotation = 0;
+                    
+                    this.slowMotionActive = false;
+                    this.slowMotionDuration = 0;
+                    
+                    this.multiplierActive = false;
+                    this.multiplierDuration = 0;
+                }
+                
+                // Update player position and power-up timers
+                codebyart_update(keys, canvasWidth, canvasHeight, deltaTime) {
+                    // Check arrow key states and update x/y position
+                    if (keys.ArrowLeft || keys.touchLeft) {
+                        this.x -= this.speed;
+                    }
+                    if (keys.ArrowRight || keys.touchRight) {
+                        this.x += this.speed;
+                    }
+                    if (keys.ArrowUp || keys.touchUp) {
+                        this.y -= this.speed;
+                    }
+                    if (keys.ArrowDown || keys.touchDown) {
+                        this.y += this.speed;
+                    }
+                    
+                    // Clamp position to keep ship within canvas boundaries
+                    const halfWidth = this.width / 2;
+                    const halfHeight = this.height / 2;
+                    this.x = Math.max(halfWidth, Math.min(canvasWidth - halfWidth, this.x));
+                    this.y = Math.max(halfHeight, Math.min(canvasHeight - halfHeight, this.y));
+                    
+                    // Update power-up duration timers (deltaTime is in milliseconds)
+                    if (this.shieldActive) {
+                        this.shieldDuration -= deltaTime;
+                        this.shieldRotation += deltaTime * 0.002; // Rotate shield
+                        if (this.shieldDuration <= 0) {
+                            this.shieldActive = false;
+                            this.shieldDuration = 0;
+                        }
+                    }
+                    
+                    if (this.slowMotionActive) {
+                        this.slowMotionDuration -= deltaTime;
+                        if (this.slowMotionDuration <= 0) {
+                            this.slowMotionActive = false;
+                            this.slowMotionDuration = 0;
+                        }
+                    }
+                    
+                    if (this.multiplierActive) {
+                        this.multiplierDuration -= deltaTime;
+                        if (this.multiplierDuration <= 0) {
+                            this.multiplierActive = false;
+                            this.multiplierDuration = 0;
+                        }
+                    }
+                }
+                
+                // Render player ship
+                codebyart_render(ctx) {
+                    ctx.save();
+                    
+                    // Draw triangular ship shape pointing upward
+                    // Round x/y coordinates to integers before rendering
+                    ctx.translate(Math.round(this.x), Math.round(this.y));
+                    
+                    // Add cyan glow effect using shadowBlur
+                    ctx.shadowColor = 'rgba(0, 255, 255, 0.5)';
+                    ctx.shadowBlur = 15;
+                    
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -this.height / 2); // Top point
+                    ctx.lineTo(-this.width / 2, this.height / 2); // Bottom left
+                    ctx.lineTo(this.width / 2, this.height / 2); // Bottom right
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // Reset shadow for shield
+                    ctx.shadowBlur = 0;
+                    
+                    // Draw rotating hexagonal shield if shield is active
+                    if (this.shieldActive) {
+                        ctx.save();
+                        ctx.rotate(this.shieldRotation);
+                        
+                        ctx.strokeStyle = '#FFD700';
+                        ctx.lineWidth = 3;
+                        ctx.shadowColor = 'rgba(255, 215, 0, 0.6)';
+                        ctx.shadowBlur = 10;
+                        
+                        const shieldRadius = this.width;
+                        ctx.beginPath();
+                        for (let i = 0; i < 6; i++) {
+                            const angle = (Math.PI / 3) * i;
+                            const x = Math.cos(angle) * shieldRadius;
+                            const y = Math.sin(angle) * shieldRadius;
+                            if (i === 0) {
+                                ctx.moveTo(x, y);
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+                        }
+                        ctx.closePath();
+                        ctx.stroke();
+                        
+                        ctx.restore();
+                    }
+                    
+                    ctx.restore();
+                }
+                
+                // Activate shield power-up (5 second duration)
+                codebyart_activateShield() {
+                    this.shieldActive = true;
+                    this.shieldDuration = 5000; // 5 seconds in milliseconds
+                }
+                
+                // Activate slow motion power-up (4 second duration)
+                codebyart_activateSlowMotion() {
+                    this.slowMotionActive = true;
+                    this.slowMotionDuration = 4000; // 4 seconds in milliseconds
+                }
+                
+                // Activate multiplier power-up (6 second duration)
+                codebyart_activateMultiplier() {
+                    this.multiplierActive = true;
+                    this.multiplierDuration = 6000; // 6 seconds in milliseconds
+                }
+                
+                // Get bounds for collision detection
+                codebyart_getBounds() {
+                    return {
+                        x: this.x - this.width / 2,
+                        y: this.y - this.height / 2,
+                        width: this.width,
+                        height: this.height,
+                        centerX: this.x,
+                        centerY: this.y,
+                        radius: this.width / 2 // For circle collision detection
+                    };
+                }
+            }
+            
+            // Meteor Obstacle Class
+            class codebyart_Meteor {
+                constructor(x, y, speedMultiplier = 1.0) {
+                    // Position parameters
+                    this.x = x;
+                    this.y = y;
+                    
+                    // Set random radius between 20-50 pixels
+                    this.radius = Math.random() * 30 + 20; // 20 to 50
+                    
+                    // Set base falling speed with difficulty multiplier
+                    this.speed = (2 + Math.random() * 2) * speedMultiplier; // (2 to 4) * multiplier pixels per frame
+                    
+                    // Initialize rotation and rotation speed
+                    this.rotation = Math.random() * Math.PI * 2; // Random initial rotation
+                    this.rotationSpeed = (Math.random() - 0.5) * 0.05; // -0.025 to 0.025 radians per frame
+                    
+                    // Set random brown/gray color
+                    const colors = ['#8B4513', '#A0522D', '#696969', '#654321', '#808080'];
+                    this.color = colors[Math.floor(Math.random() * colors.length)];
+                }
+                
+                // Update meteor movement and rotation
+                codebyart_update(deltaTime, slowMotionActive) {
+                    // Move meteor downward based on speed and deltaTime
+                    // deltaTime is in milliseconds, normalize to 60 FPS (16.67ms per frame)
+                    const frameMultiplier = deltaTime / 16.67;
+                    let effectiveSpeed = this.speed * frameMultiplier;
+                    
+                    // Apply slow-motion modifier if active (50% speed reduction)
+                    if (slowMotionActive) {
+                        effectiveSpeed *= 0.5;
+                    }
+                    
+                    this.y += effectiveSpeed;
+                    
+                    // Update rotation angle
+                    this.rotation += this.rotationSpeed * frameMultiplier;
+                }
+                
+                // Check if meteor is off screen
+                codebyart_isOffScreen(canvasHeight) {
+                    return this.y - this.radius > canvasHeight;
+                }
+                
+                // Render meteor
+                codebyart_render(ctx) {
+                    // Save context state
+                    ctx.save();
+                    
+                    // Translate to meteor position
+                    // Round x/y coordinates to integers before rendering
+                    ctx.translate(Math.round(this.x), Math.round(this.y));
+                    
+                    // Rotate context by current rotation angle
+                    ctx.rotate(this.rotation);
+                    
+                    // Draw circular meteor with rocky texture effect
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Add darker inner circles for rocky texture
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                    ctx.beginPath();
+                    ctx.arc(this.radius * 0.3, -this.radius * 0.3, this.radius * 0.2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.arc(-this.radius * 0.4, this.radius * 0.2, this.radius * 0.15, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.arc(this.radius * 0.1, this.radius * 0.4, this.radius * 0.18, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Add lighter highlights for depth
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                    ctx.beginPath();
+                    ctx.arc(-this.radius * 0.2, -this.radius * 0.4, this.radius * 0.15, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Restore context state
+                    ctx.restore();
+                }
+                
+                // Get bounds for collision detection (circle collision data)
+                codebyart_getBounds() {
+                    return {
+                        x: this.x,
+                        y: this.y,
+                        radius: this.radius
+                    };
+                }
+            }
+            
+            // Power-Up Collectible Class
+            class codebyart_PowerUp {
+                constructor(x, y, type) {
+                    // Position parameters
+                    this.x = x;
+                    this.y = y;
+                    
+                    // Type of power-up: 'shield', 'slowmo', 'multiplier'
+                    this.type = type;
+                    
+                    // Set size to 30 pixels
+                    this.size = 30;
+                    
+                    // Set type-specific colors
+                    switch (type) {
+                        case 'shield':
+                            this.color = '#FFD700'; // Gold for shield
+                            break;
+                        case 'slowmo':
+                            this.color = '#9370DB'; // Purple for slow-motion
+                            break;
+                        case 'multiplier':
+                            this.color = '#32CD32'; // Green for multiplier
+                            break;
+                        default:
+                            this.color = '#FFFFFF';
+                    }
+                    
+                    // Initialize pulse animation phase
+                    this.pulsePhase = 0;
+                    
+                    // Set lifetime to 8 seconds (in milliseconds)
+                    this.lifetime = 8000;
+                }
+                
+                // Update power-up animation and expiration
+                codebyart_update(deltaTime) {
+                    // Update pulse phase for scaling animation
+                    // deltaTime is in milliseconds, normalize to create smooth animation
+                    this.pulsePhase += deltaTime * 0.003; // Adjust speed of pulse
+                    
+                    // Decrease lifetime counter
+                    this.lifetime -= deltaTime;
+                }
+                
+                // Check if power-up has expired
+                codebyart_isExpired() {
+                    return this.lifetime <= 0;
+                }
+                
+                // Render power-up with pulsing effect and type-specific icon
+                codebyart_render(ctx) {
+                    ctx.save();
+                    
+                    // Translate to power-up position
+                    // Round x/y coordinates to integers before rendering
+                    ctx.translate(Math.round(this.x), Math.round(this.y));
+                    
+                    // Apply pulsing scale effect (0.9x to 1.1x)
+                    const scale = 0.9 + Math.sin(this.pulsePhase) * 0.1;
+                    ctx.scale(scale, scale);
+                    
+                    // Draw square background with glow
+                    ctx.shadowColor = this.color;
+                    ctx.shadowBlur = 15;
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+                    
+                    // Reset shadow for icon
+                    ctx.shadowBlur = 5;
+                    
+                    // Draw type-specific icon
+                    ctx.strokeStyle = '#000000';
+                    ctx.fillStyle = '#000000';
+                    ctx.lineWidth = 2;
+                    
+                    if (this.type === 'shield') {
+                        // Draw shield symbol (hexagon)
+                        ctx.beginPath();
+                        const shieldRadius = this.size * 0.35;
+                        for (let i = 0; i < 6; i++) {
+                            const angle = (Math.PI / 3) * i;
+                            const x = Math.cos(angle) * shieldRadius;
+                            const y = Math.sin(angle) * shieldRadius;
+                            if (i === 0) {
+                                ctx.moveTo(x, y);
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+                        }
+                        ctx.closePath();
+                        ctx.stroke();
+                        
+                        // Add cross in center
+                        ctx.beginPath();
+                        ctx.moveTo(0, -shieldRadius * 0.5);
+                        ctx.lineTo(0, shieldRadius * 0.5);
+                        ctx.moveTo(-shieldRadius * 0.5, 0);
+                        ctx.lineTo(shieldRadius * 0.5, 0);
+                        ctx.stroke();
+                        
+                    } else if (this.type === 'slowmo') {
+                        // Draw clock symbol
+                        const clockRadius = this.size * 0.35;
+                        ctx.beginPath();
+                        ctx.arc(0, 0, clockRadius, 0, Math.PI * 2);
+                        ctx.stroke();
+                        
+                        // Clock hands
+                        ctx.beginPath();
+                        ctx.moveTo(0, 0);
+                        ctx.lineTo(0, -clockRadius * 0.6); // Hour hand
+                        ctx.moveTo(0, 0);
+                        ctx.lineTo(clockRadius * 0.5, 0); // Minute hand
+                        ctx.stroke();
+                        
+                        // Center dot
+                        ctx.beginPath();
+                        ctx.arc(0, 0, 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        
+                    } else if (this.type === 'multiplier') {
+                        // Draw star symbol
+                        const starRadius = this.size * 0.4;
+                        const starPoints = 5;
+                        ctx.beginPath();
+                        for (let i = 0; i < starPoints * 2; i++) {
+                            const angle = (Math.PI / starPoints) * i - Math.PI / 2;
+                            const radius = i % 2 === 0 ? starRadius : starRadius * 0.4;
+                            const x = Math.cos(angle) * radius;
+                            const y = Math.sin(angle) * radius;
+                            if (i === 0) {
+                                ctx.moveTo(x, y);
+                            } else {
+                                ctx.lineTo(x, y);
+                            }
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.stroke();
+                    }
+                    
+                    ctx.restore();
+                }
+                
+                // Get bounds for collision detection
+                codebyart_getBounds() {
+                    return {
+                        x: this.x - this.size / 2,
+                        y: this.y - this.size / 2,
+                        size: this.size,
+                        width: this.size,
+                        height: this.size,
+                        centerX: this.x,
+                        centerY: this.y
+                    };
+                }
+            }
+            
+            // Particle Effect Class
+            class codebyart_Particle {
+                constructor(x, y, vx, vy, color) {
+                    // Position parameters
+                    this.x = x;
+                    this.y = y;
+                    
+                    // Velocity parameters
+                    this.vx = vx;
+                    this.vy = vy;
+                    
+                    // Set random size between 2-6 pixels
+                    this.size = Math.random() * 4 + 2; // 2 to 6 pixels
+                    
+                    // Color parameter
+                    this.color = color || '#FF6347'; // Default to tomato red
+                    
+                    // Initialize life to 1.0 (full opacity)
+                    this.life = 1.0;
+                    
+                    // Set decay rate (how fast the particle fades)
+                    this.decay = 0.02 + Math.random() * 0.02; // 0.02 to 0.04 per frame
+                }
+                
+                // Reset particle for object pooling
+                reset(x, y, vx, vy, color) {
+                    this.x = x;
+                    this.y = y;
+                    this.vx = vx;
+                    this.vy = vy;
+                    this.size = Math.random() * 4 + 2;
+                    this.color = color || '#FF6347';
+                    this.life = 1.0;
+                    this.decay = 0.02 + Math.random() * 0.02;
+                }
+                
+                // Update particle physics and decrease life
+                codebyart_update(deltaTime) {
+                    // Move particle based on velocity
+                    // deltaTime is in milliseconds, normalize to 60 FPS (16.67ms per frame)
+                    const frameMultiplier = deltaTime / 16.67;
+                    
+                    this.x += this.vx * frameMultiplier;
+                    this.y += this.vy * frameMultiplier;
+                    
+                    // Decrease life (fade out over time)
+                    this.life -= this.decay * frameMultiplier;
+                    
+                    // Ensure life doesn't go below 0
+                    if (this.life < 0) {
+                        this.life = 0;
+                    }
+                }
+                
+                // Render particle with alpha based on life
+                codebyart_render(ctx) {
+                    if (this.life <= 0) return;
+                    
+                    ctx.save();
+                    
+                    // Set alpha based on life (0 to 1)
+                    ctx.globalAlpha = this.life;
+                    
+                    // Draw particle as a circle
+                    ctx.fillStyle = this.color;
+                    ctx.beginPath();
+                    ctx.arc(Math.round(this.x), Math.round(this.y), this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.restore();
+                }
+                
+                // Check if particle is dead (life <= 0)
+                codebyart_isDead() {
+                    return this.life <= 0;
+                }
+            }
+            
+            // Expose to global scope
+            window.codebyart_MeteorDodgeGame = codebyart_MeteorDodgeGame;
+            
+            // RequestAnimationFrame fallback for older browsers
+            window.requestAnimationFrame = window.requestAnimationFrame || 
+                                            window.webkitRequestAnimationFrame ||
+                                            window.mozRequestAnimationFrame ||
+                                            window.oRequestAnimationFrame ||
+                                            window.msRequestAnimationFrame ||
+                                            function(callback) { 
+                                                return setTimeout(callback, 16); 
+                                            };
+            
+            // Initialize game on page load
+            document.addEventListener('DOMContentLoaded', () => {
+                const canvas = document.getElementById('gameCanvas');
+                
+                // Canvas support detection with fallback message
+                if (!canvas || !canvas.getContext) {
+                    document.body.innerHTML = '<div style="color: white; text-align: center; padding: 50px; font-family: Arial;">' +
+                                              '<h1>Browser Not Supported</h1>' +
+                                              '<p>Your browser does not support HTML5 Canvas.</p>' +
+                                              '<p>Please use a modern browser like Chrome, Firefox, Safari, or Edge.</p>' +
+                                              '</div>';
+                    return;
+                }
+                
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    document.body.innerHTML = '<div style="color: white; text-align: center; padding: 50px; font-family: Arial;">' +
+                                              '<h1>Canvas Error</h1>' +
+                                              '<p>Unable to get 2D rendering context.</p>' +
+                                              '<p>Please try a different browser.</p>' +
+                                              '</div>';
+                    return;
+                }
+                
+                const game = new codebyart_MeteorDodgeGame('gameCanvas');
+                game.codebyart_init();
+                game.codebyart_gameLoop(0);
+            });
+            
+        })();
+    </script>
+
